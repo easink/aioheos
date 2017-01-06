@@ -6,6 +6,7 @@ import socket
 import json
 from pprint import pprint
 from . import aioheosupnp
+# from . import aioheosupnp
 
 HEOS_PORT = 1255
 
@@ -66,7 +67,7 @@ class AioHeos(object):
         self._verbose = verbose
         self._player_id = None
         # self._connection = None
-        self._upnp = aioheosupnp.HeosUpnp(loop=loop, verbose=verbose)
+        self._upnp = aioheosupnp.AioHeosUpnp(loop=loop, verbose=verbose)
         self._reader = None
         self._writer = None
 
@@ -110,7 +111,11 @@ class AioHeos(object):
     @staticmethod
     def _parse_message(message):
         " parse message "
-        return dict(elem.split('=') for elem in message.split('&'))
+        try:
+            return dict(elem.split('=') for elem in message.split('&'))
+        except ValueError:
+            print('[E] parsing message ({}).'.format(message))
+            return {}
 
     def _dispatcher(self, command, payload):
         " call parser functions "
@@ -382,13 +387,13 @@ def main():
     " main "
 
     loop = asyncio.get_event_loop()
-    upnp = aioheosupnp.HeosUpnp(loop, verbose=True)
+    upnp = aioheosupnp.AioHeosUpnp(loop, verbose=True)
     url = upnp.discover()
     host = 'HEOS-Player.rydbrink.local'
     heos = AioHeos(host, verbose=True)
 
     # heos.connect()
-    loop = asyncio.get_event_loop()
+    # loop = asyncio.get_event_loop()
     tasks = [loop.create_task(heos.event_loop()),
             loop.create_task(heos.worker())]
     loop.run_until_complete(asyncio.wait(tasks))

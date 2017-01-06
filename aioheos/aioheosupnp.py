@@ -18,7 +18,7 @@ from pprint import pprint
 from time import gmtime, strftime
 import lxml.etree
 
-import aiohttp
+# import aiohttp
 
 SSDP_HOST = '239.255.255.250'
 SSDP_PORT = 1900
@@ -270,7 +270,7 @@ class Upnp(object):
             try:
                 key, value = line.rsplit(': ')
                 result[key.lower()] = value
-            except KeyError:
+            except (KeyError, ValueError):
                 pass
         return result
 
@@ -312,7 +312,7 @@ class PlayContentServer(asyncio.Protocol):
         self._transport.close()
 
 
-class HeosUpnp(object):
+class AioHeosUpnp(object):
     " Heos version of Upnp "
 
     def __init__(self, loop, verbose=False):
