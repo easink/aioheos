@@ -6,7 +6,6 @@ import socket
 import json
 from pprint import pprint
 from . import aioheosupnp
-# from . import aioheosupnp
 
 HEOS_PORT = 1255
 
@@ -113,9 +112,9 @@ class AioHeos(object):
         " parse message "
         try:
             return dict(elem.split('=') for elem in message.split('&'))
-        except ValueError:
-            print('[E] parsing message ({}).'.format(message))
-            return {}
+        except ValueError as e:
+            print('[E] parsing message ({}), {}.'.format(message, e))
+        return {}
 
     def _dispatcher(self, command, payload):
         " call parser functions "
@@ -170,7 +169,11 @@ class AioHeos(object):
                 yield from asyncio.sleep(1)
                 continue
             # msg = yield from self._reader.read(64*1024)
-            msg = yield from self._reader.readline()
+            try:
+                msg = yield from self._reader.readline()
+            except:
+                print('[E] ', sys.exc_info()[0])
+                raise
             if self._verbose:
                 pprint(msg.decode())
             # simplejson doesnt need to decode from byte to ascii
@@ -182,9 +185,8 @@ class AioHeos(object):
             if trigger_callback:
                 if self._verbose:
                     print('TRIGGER CALLBACK')
-                # trigger_callback()
-                yield from trigger_callback()
-                # self._loop.create_task(trigger_callback())
+                self._loop.create_task(trigger_callback())
+                # yield from trigger_callback()
 
     def close(self):
         " close "
