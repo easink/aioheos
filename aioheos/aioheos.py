@@ -3,6 +3,7 @@
 
 import asyncio
 import socket
+import sys
 import json
 from pprint import pprint
 from . import aioheosupnp
