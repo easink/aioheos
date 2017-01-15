@@ -156,6 +156,8 @@ class AioHeos(object):
             else:
                 raise AioHeosException('No message or payload in reply.')
         # pylint: disable=bare-except
+        except AioHeosException as e:
+            raise AioHeosException('Problem parsing ({})'.format(e))
         except:
             raise AioHeosException('Problem parsing command.')
 
@@ -181,7 +183,14 @@ class AioHeos(object):
             if self._verbose:
                 pprint('DATA:')
                 pprint(data)
-            self._parse_command(data)
+            try:
+                self._parse_command(data)
+            except AioHeosException as e:
+                print('[E]', e)
+                print('MSG', msg)
+                print('MSG decoded', msg.decode())
+                print('MSG json', data)
+                continue
             if trigger_callback:
                 if self._verbose:
                     print('TRIGGER CALLBACK')
