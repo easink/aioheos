@@ -152,7 +152,8 @@ class AioHeos(object):
                 self._dispatcher(command, data['payload'])
             elif 'message' in data_heos.keys():
                 message = self._parse_message(data_heos['message'])
-                self._dispatcher(command, message)
+                if message != 'command under process':
+                    self._dispatcher(command, message)
             else:
                 raise AioHeosException('No message or payload in reply.')
         # pylint: disable=bare-except
