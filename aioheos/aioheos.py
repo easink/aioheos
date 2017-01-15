@@ -5,6 +5,7 @@ import asyncio
 import socket
 import sys
 import json
+from datetime import datetime
 from pprint import pprint
 from . import aioheosupnp
 
@@ -57,6 +58,7 @@ class AioHeos(object):
         self._mute_state = None
         self._volume_level = 0
         self._current_position = 0
+        self._current_position_updated_at = 0
         self._duration = 0
         self._media_artist = None
         self._media_album = None
@@ -333,8 +335,14 @@ class AioHeos(object):
     def get_media_id(self):
         return self._media_id
 
+    def get_position(self):
+        return self._current_position
+
+    def get_position_updated_at(self):
+        return self._current_position_updated_at
+
     def get_duration(self):
-        return (self._current_position, self._duration)
+        return self._duration
 
     def request_queue(self):
         " get queue "
@@ -393,6 +401,7 @@ class AioHeos(object):
 
     def _parse_player_now_playing_progress(self, message):
         self._current_position = int(message['cur_pos'])
+        self._current_position_updated_at = datetime.utcnow()
         self._duration = int(message['duration'])
 
 
