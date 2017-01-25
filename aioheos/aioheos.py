@@ -96,7 +96,16 @@ class AioHeos(object):
     @asyncio.coroutine
     def _connect(self, host, port=HEOS_PORT):
         " connect "
-        self._reader, self._writer = yield from asyncio.open_connection(self._host, HEOS_PORT, loop=self._loop)
+        while True:
+            try:
+                self._reader, self._writer = yield from asyncio.open_connection(self._host, HEOS_PORT, loop=self._loop)
+                break
+            except TimeoutError:
+                print('[E] Connection timed out, will try {}:{} again...'.format(self._host, HEOS_PORT))
+            except:
+                print('[E]', sys.exc_info()[0])
+
+            asyncio.sleep(5.0)
 
     def send_command(self, command, message=None):
         " send command "
@@ -178,9 +187,14 @@ class AioHeos(object):
             # msg = yield from self._reader.read(64*1024)
             try:
                 msg = yield from self._reader.readline()
+            except TimeoutError:
+                print('[E] Connection got timed out, try to reconnect...')
+                yield from self._connect(self._host)
+            except ConnectionResetError:
+                print('[E] Peer reset our connection, try to reconnect...')
+                yield from self._connect(self._host)
             except:
-                print('[E] ', sys.exc_info()[0])
-                raise
+                print('[E] Ignoring', sys.exc_info()[0])
             if self._verbose:
                 pprint(msg.decode())
             # simplejson doesnt need to decode from byte to ascii
