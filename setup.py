@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='aioheos',
-      version='0.0.1',
+      version='0.0.3',
       description='Denon Heos',
       url='http://github.com/easink/aioheos',
       author='Andreas Rydbrink',
