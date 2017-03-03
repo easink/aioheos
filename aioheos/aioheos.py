@@ -68,7 +68,6 @@ class AioHeos(object):
 
         self._verbose = verbose
         self._player_id = None
-        # self._connection = None
         self._upnp = aioheosupnp.AioHeosUpnp(loop=loop, verbose=verbose)
         self._reader = None
         self._writer = None
@@ -105,7 +104,7 @@ class AioHeos(object):
             except:
                 print('[E]', sys.exc_info()[0])
 
-            asyncio.sleep(5.0)
+            yield from asyncio.sleep(5.0)
 
     def send_command(self, command, message=None):
         " send command "
@@ -213,8 +212,7 @@ class AioHeos(object):
             if trigger_callback:
                 if self._verbose:
                     print('TRIGGER CALLBACK')
-                self._loop.create_task(trigger_callback())
-                # yield from trigger_callback()
+                yield from trigger_callback()
 
     def close(self):
         " close "
@@ -382,7 +380,7 @@ class AioHeos(object):
     def play_queue(self, qid):
         " play queue "
         self.send_command(PLAY_QUEUE, {'pid': self.__player_id(),
-                                                'qid': qid})
+                                       'qid': qid})
 
     def request_groups(self):
         " get groups "
@@ -416,7 +414,7 @@ class AioHeos(object):
 
     def _parse_player_now_playing_progress(self, message):
         self._current_position = int(message['cur_pos'])
-        self._current_position_updated_at = datetime.utcnow()
+        self._current_position_updated_at = datetime.now()
         self._duration = int(message['duration'])
 
 
@@ -426,17 +424,15 @@ def main():
     loop = asyncio.get_event_loop()
     upnp = aioheosupnp.AioHeosUpnp(loop, verbose=True)
     url = upnp.discover()
-    host = 'HEOS-Player.rydbrink.local'
-    heos = AioHeos(host, verbose=True)
+    host = 'HEOS-1'
+    heos = aioheos.AioHeos(host, verbose=True)
 
-    # heos.connect()
-    # loop = asyncio.get_event_loop()
     tasks = [loop.create_task(heos.event_loop()),
             loop.create_task(heos.worker())]
     loop.run_until_complete(asyncio.wait(tasks))
-    loop.close()
-    import sys
-    sys.exit()
+    # loop.close()
+    # import sys
+    # sys.exit()
 
     # heos._player_info()
     heos.request_play_state()
@@ -453,3 +449,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
