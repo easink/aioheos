@@ -2,43 +2,42 @@
 " Heos python lib "
 
 import asyncio
-import socket
 import sys
 import json
 from datetime import datetime
-from pprint import pprint
+from concurrent.futures import CancelledError
 from . import aioheosupnp
 
 HEOS_PORT = 1255
 
-GET_PLAYERS           = 'player/get_players'
-GET_PLAYER_INFO       = 'player/get_player_info'
-GET_PLAY_STATE        = 'player/get_play_state'
-SET_PLAY_STATE        = 'player/set_play_state'
-GET_MUTE_STATE        = 'player/get_mute'
-SET_MUTE_STATE        = 'player/set_mute'
-GET_VOLUME            = 'player/get_volume'
-SET_VOLUME            = 'player/set_volume'
+GET_PLAYERS = 'player/get_players'
+GET_PLAYER_INFO = 'player/get_player_info'
+GET_PLAY_STATE = 'player/get_play_state'
+SET_PLAY_STATE = 'player/set_play_state'
+GET_MUTE_STATE = 'player/get_mute'
+SET_MUTE_STATE = 'player/set_mute'
+GET_VOLUME = 'player/get_volume'
+SET_VOLUME = 'player/set_volume'
 GET_NOW_PLAYING_MEDIA = 'player/get_now_playing_media'
-GET_QUEUE             = 'player/get_queue'
-CLEAR_QUEUE           = 'player/clear_queue'
-PLAY_NEXT             = 'player/play_next'
-PLAY_PREVIOUS         = 'player/play_previous'
-PLAY_QUEUE            = 'player/play_queue'
-TOGGLE_MUTE           = 'player/toggle_mute'
+GET_QUEUE = 'player/get_queue'
+CLEAR_QUEUE = 'player/clear_queue'
+PLAY_NEXT = 'player/play_next'
+PLAY_PREVIOUS = 'player/play_previous'
+PLAY_QUEUE = 'player/play_queue'
+TOGGLE_MUTE = 'player/toggle_mute'
 
-GET_GROUPS            = 'group/get_groups'
+GET_GROUPS = 'group/get_groups'
 
-GET_MUSIC_SOURCES     = 'browser/get_music_sources'
-BROWSE                = 'browser/browse'
+GET_MUSIC_SOURCES = 'browser/get_music_sources'
+BROWSE = 'browser/browse'
 
-PLAYER_VOLUME_CHANGED       = 'event/player_volume_changed'
-PLAYER_STATE_CHANGED        = 'event/player_state_changed'
-PLAYER_NOW_PLAYING_CHANGED  = 'event/player_now_playing_changed'
+PLAYER_VOLUME_CHANGED = 'event/player_volume_changed'
+PLAYER_STATE_CHANGED = 'event/player_state_changed'
+PLAYER_NOW_PLAYING_CHANGED = 'event/player_now_playing_changed'
 PLAYER_NOW_PLAYING_PROGRESS = 'event/player_now_playing_progress'
 
-SYSTEM_PRETTIFY             = 'system/prettify_json_response'
-SYSTEM_REGISTER_FOR_EVENTS  = 'system/register_for_change_events'
+SYSTEM_PRETTIFY = 'system/prettify_json_response'
+SYSTEM_REGISTER_FOR_EVENTS = 'system/register_for_change_events'
 
 class AioHeosException(Exception):
     " AioHeosException class "
@@ -47,7 +46,7 @@ class AioHeosException(Exception):
         self.message = message
 
 
-class AioHeos(object):
+class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instance-attributes
     " Asynchronous Heos class "
 
     def __init__(self, loop, host=None, verbose=False):
@@ -71,11 +70,27 @@ class AioHeos(object):
         self._upnp = aioheosupnp.AioHeosUpnp(loop=loop, verbose=verbose)
         self._reader = None
         self._writer = None
+        self._event_loop_task = None
 
-        if not self._host:
-            # host = self._discover_ssdp()
-            url = self._upnp.discover()
-            self._host = self._url_to_addr(url)
+    @asyncio.coroutine
+    def ensure_player(self):
+        """ ensure player """
+        # timeout after 10 sec
+        for _ in range(0, 100):
+            if self._player_id is None:
+                yield from asyncio.sleep(0.1)
+            else:
+                return
+
+    @asyncio.coroutine
+    def ensure_reader(self):
+        """ ensure reader """
+        # timeout after 10 sec
+        for _ in range(0, 100):
+            if self._reader is None:
+                yield from asyncio.sleep(0.1)
+            else:
+                return
 
     @staticmethod
     def _url_to_addr(url):
@@ -87,21 +102,43 @@ class AioHeos(object):
             return None
 
     @asyncio.coroutine
-    def connect(self, port=HEOS_PORT):
+    def connect(self, host=None, port=HEOS_PORT, trigger_callback=None):
+        """ setup proper connection """
+        if host is not None:
+            self._host = host
+
+        # discover
+        if not self._host:
+            url = yield from self._upnp.discover()
+            self._host = self._url_to_addr(url)
+
+        # connect
         if self._verbose:
             print('[I] Connecting to {}:{}'.format(self._host, port))
         yield from self._connect(self._host, port)
+
+        # please, do no prettying json
+        self.register_pretty_json(False)
+
+        # setup event loop
+        if self._event_loop_task is None:
+            self._event_loop_task = self._loop.create_task(self._event_loop(trigger_callback))
+
+        # request for players
+        self.request_players()
+        yield from self.ensure_player()
 
     @asyncio.coroutine
     def _connect(self, host, port=HEOS_PORT):
         " connect "
         while True:
             try:
-                self._reader, self._writer = yield from asyncio.open_connection(self._host, HEOS_PORT, loop=self._loop)
+                # pylint: disable=line-too-long
+                self._reader, self._writer = yield from asyncio.open_connection(host, port, loop=self._loop)
                 break
             except TimeoutError:
-                print('[E] Connection timed out, will try {}:{} again...'.format(self._host, HEOS_PORT))
-            except:
+                print('[E] Connection timed out, will try {}:{} again...'.format(self._host, port))
+            except: # pylint: disable=bare-except
                 print('[E]', sys.exc_info()[0])
 
             yield from asyncio.sleep(5.0)
@@ -123,8 +160,8 @@ class AioHeos(object):
         " parse message "
         try:
             return dict(elem.split('=') for elem in message.split('&'))
-        except ValueError as e:
-            print('[E] parsing message ({}), {}.'.format(message, e))
+        except ValueError as exc:
+            print('[E] parsing message ({}), {}.'.format(message, exc))
         return {}
 
     def _dispatcher(self, command, payload):
@@ -132,23 +169,29 @@ class AioHeos(object):
         # if self._verbose:
         if self._verbose:
             print('DISPATCHER')
-            pprint((command, payload))
+            print((command, payload))
         callbacks = {
-                GET_PLAYERS: self._parse_players,
-                GET_PLAY_STATE: self._parse_play_state,
-                SET_PLAY_STATE: self._parse_play_state,
-                GET_MUTE_STATE: self._parse_mute_state,
-                SET_MUTE_STATE: self._parse_mute_state,
-                GET_VOLUME: self._parse_volume,
-                SET_VOLUME: self._parse_volume,
-                GET_NOW_PLAYING_MEDIA: self._parse_now_playing_media,
-                PLAYER_VOLUME_CHANGED: self._parse_player_volume_changed,
-                PLAYER_STATE_CHANGED: self._parse_player_state_changed,
-                PLAYER_NOW_PLAYING_CHANGED: self._parse_player_now_playing_changed,
-                PLAYER_NOW_PLAYING_PROGRESS: self._parse_player_now_playing_progress,
-                }
+            GET_PLAYERS: self._parse_players,
+            GET_PLAY_STATE: self._parse_play_state,
+            SET_PLAY_STATE: self._parse_play_state,
+            GET_MUTE_STATE: self._parse_mute_state,
+            SET_MUTE_STATE: self._parse_mute_state,
+            GET_VOLUME: self._parse_volume,
+            SET_VOLUME: self._parse_volume,
+            GET_NOW_PLAYING_MEDIA: self._parse_now_playing_media,
+            PLAYER_VOLUME_CHANGED: self._parse_player_volume_changed,
+            PLAYER_STATE_CHANGED: self._parse_player_state_changed,
+            PLAYER_NOW_PLAYING_CHANGED: self._parse_player_now_playing_changed,
+            PLAYER_NOW_PLAYING_PROGRESS: self._parse_player_now_playing_progress,
+            }
+        commands_ignored = (
+            SYSTEM_PRETTIFY,
+            )
         if command in callbacks.keys():
             callbacks[command](payload)
+        elif command in commands_ignored:
+            if self._verbose:
+                print('[I] command "{}" is ignored.'.format(command))
         else:
             print('[W] command "{}" is not handled.'.format(command))
 
@@ -169,16 +212,21 @@ class AioHeos(object):
             else:
                 raise AioHeosException('No message or payload in reply.')
         # pylint: disable=bare-except
-        except AioHeosException as e:
-            raise AioHeosException('Problem parsing ({})'.format(e))
+        except AioHeosException as exc:
+            raise AioHeosException('Problem parsing ({})'.format(exc))
         except:
             raise AioHeosException('Problem parsing command.')
 
         return None
 
+    # @asyncio.coroutine
+    # def event_loop(self, trigger_callback=None):
+    #     self._event_loop_task = self._loop.create_task(self._event_loop(trigger_callback))
+    #     # yield from self._event_loop_task
+
     @asyncio.coroutine
-    def event_loop(self, trigger_callback=None):
-        " recv reply "
+    def _event_loop(self, trigger_callback=None): # pylint: disable=too-many-branches
+        """ event loop """
         while True:
             if self._reader is None:
                 yield from asyncio.sleep(1)
@@ -187,24 +235,30 @@ class AioHeos(object):
             try:
                 msg = yield from self._reader.readline()
             except TimeoutError:
-                print('[E] Connection got timed out, try to reconnect...')
+                if self._verbose:
+                    print('[E] Connection got timed out, try to reconnect...')
                 yield from self._connect(self._host)
             except ConnectionResetError:
-                print('[E] Peer reset our connection, try to reconnect...')
+                if self._verbose:
+                    print('[E] Peer reset our connection, try to reconnect...')
                 yield from self._connect(self._host)
-            except:
+            except CancelledError:
+                if self._verbose:
+                    print('[I] Cancelling event loop...')
+                return
+            except: # pylint: disable=bare-except
                 print('[E] Ignoring', sys.exc_info()[0])
             if self._verbose:
-                pprint(msg.decode())
+                print(msg.decode())
             # simplejson doesnt need to decode from byte to ascii
             data = json.loads(msg.decode())
             if self._verbose:
-                pprint('DATA:')
-                pprint(data)
+                print('DATA:')
+                print(data)
             try:
                 self._parse_command(data)
-            except AioHeosException as e:
-                print('[E]', e)
+            except AioHeosException as exc:
+                print('[E]', exc)
                 print('MSG', msg)
                 print('MSG decoded', msg.decode())
                 print('MSG json', data)
@@ -216,7 +270,7 @@ class AioHeos(object):
 
     def close(self):
         " close "
-        pass
+        self._event_loop_task.cancel()
 
     def register_for_change_events(self):
         " register for change events "
@@ -241,31 +295,33 @@ class AioHeos(object):
         return self._player_id
 
     def request_player_info(self):
-        " get player info "
+        " request player info "
         self.send_command(GET_PLAYER_INFO, {'pid': self.__player_id()})
 
     def request_play_state(self):
-        " get play state "
+        " request play state "
         self.send_command(GET_PLAY_STATE, {'pid': self.__player_id()})
 
     def _parse_play_state(self, payload):
         self._play_state = payload['state']
 
     def get_play_state(self):
+        """ get play state """
         return self._play_state
 
     def request_mute_state(self):
-        " get mute state "
+        " request mute state "
         self.send_command(GET_MUTE_STATE, {'pid': self.__player_id()})
 
     def _parse_mute_state(self, payload):
         self._mute_state = payload['state']
 
     def get_mute_state(self):
+        """ get mute state """
         return self._mute_state
 
     def request_volume(self):
-        " get volume "
+        " request volume "
         self.send_command(GET_VOLUME, {'pid': self.__player_id()})
 
     def set_volume(self, volume_level):
@@ -281,6 +337,7 @@ class AioHeos(object):
         self._volume_level = message['level']
 
     def get_volume(self):
+        """ get volume """
         return self._volume_level
 
     def volume_level_up(self, step=10):
@@ -328,37 +385,43 @@ class AioHeos(object):
             self._media_id = payload['mid']
 
     def get_media_artist(self):
+        """ get media artist """
         return self._media_artist
 
     def get_media_album(self):
+        """ get media album """
         return self._media_album
 
     def get_media_song(self):
+        """ get media song """
         return self._media_title
 
     def get_media_image_url(self):
+        """ get media image url """
         return self._media_image_url
 
-    def get_media_id(self):
-        return self._medtitle
-
-    def get_media_image_url(self):
-        return self._media_image_url
+    def get_media_title(self):
+        """ get media title """
+        return self._media_title
 
     def get_media_id(self):
+        """ get media id """
         return self._media_id
 
     def get_position(self):
+        """ get position """
         return self._current_position
 
     def get_position_updated_at(self):
+        """ get position update at """
         return self._current_position_updated_at
 
     def get_duration(self):
+        """ get duration """
         return self._duration
 
     def request_queue(self):
-        " get queue "
+        " request queue "
         self.send_command(GET_QUEUE, {'pid': self.__player_id()})
 
     def clear_queue(self):
@@ -399,7 +462,9 @@ class AioHeos(object):
         self.send_command(BROWSE, {'sid': sid, 'range': '0,29'})
 
     def play_content(self, content, content_type='audio/mpeg'):
-        self._upnp.play_content(content, content_type)
+        """ play content """
+        self._loop.create_task(self._upnp.play_content(content, content_type))
+        # asyncio.wait([task])
 
     def _parse_player_volume_changed(self, message):
         self._mute_state = message['mute']
@@ -408,45 +473,11 @@ class AioHeos(object):
     def _parse_player_state_changed(self, message):
         self._play_state = message['state']
 
-    def _parse_player_now_playing_changed(self, message):
+    def _parse_player_now_playing_changed(self, _): # pylint: disable=invalid-name
         " event / now playing changed, request what changed. "
         self.request_now_playing_media()
 
-    def _parse_player_now_playing_progress(self, message):
+    def _parse_player_now_playing_progress(self, message): # pylint: disable=invalid-name
         self._current_position = int(message['cur_pos'])
         self._current_position_updated_at = datetime.now()
         self._duration = int(message['duration'])
-
-
-def main():
-    " main "
-
-    loop = asyncio.get_event_loop()
-    upnp = aioheosupnp.AioHeosUpnp(loop, verbose=True)
-    url = upnp.discover()
-    host = 'HEOS-1'
-    heos = aioheos.AioHeos(host, verbose=True)
-
-    tasks = [loop.create_task(heos.event_loop()),
-            loop.create_task(heos.worker())]
-    loop.run_until_complete(asyncio.wait(tasks))
-    # loop.close()
-    # import sys
-    # sys.exit()
-
-    # heos._player_info()
-    heos.request_play_state()
-    heos.request_mute_state()
-    heos.request_volume()
-    heos.set_volume(10)
-    heos.request_groups()
-
-    with open('hello.mp3', mode='rb') as f:
-        content = f.read()
-    content_type = 'audio/mpeg'
-    heos.play_content(content, content_type)
-    heos.close()
-
-if __name__ == "__main__":
-    main()
-
