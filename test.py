@@ -9,14 +9,11 @@ import aioheos
 def heos_test(loop):
     """ test heos """
 
-    use_upnp = True
-    verbose = False
+    verbose = True
 
-    if use_upnp is True:
-        heos = aioheos.AioHeos(loop, verbose=verbose)
-    else:
-        host = 'HEOS-1'
-        heos = aioheos.AioHeos(loop, host, verbose=verbose)
+    # host = None
+    host = 'HEOS-1'
+    heos = aioheos.AioHeos(loop, host, verbose=verbose)
 
     # connect to player
     yield from heos.connect()

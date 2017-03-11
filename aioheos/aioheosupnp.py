@@ -181,6 +181,7 @@ class Upnp(object):
         def datagram_received(self, data, _):
             """ datagram received """
             content = data.decode().rsplit('\r\n')
+
             # sock = self._transport.get_extra_info('socket')
             # if content[0].startswith('NOTIFY'):
             if content[0] == 'HTTP/1.1 200 OK':
@@ -209,7 +210,7 @@ class Upnp(object):
         future = asyncio.Future()
         self._asyncio_ensure_future(
             self._loop.create_datagram_endpoint(
-                lambda: Upnp.DiscoverProtocol(self, future, search_target),
+                lambda: Upnp.DiscoverProtocol(self, future, search_target, self._verbose),
                 family=socket.AF_INET, proto=socket.IPPROTO_UDP))
         yield from future
         self._url = future.result()
@@ -242,6 +243,7 @@ class Upnp(object):
             response = yield from session.post(url, data=body, headers=headers)
             if response.status == 200:
                 content = yield from response.read()
+            yield from response.release()
 
         if self._verbose:
             print(content)
@@ -258,6 +260,7 @@ class Upnp(object):
             response = yield from session.get(url)
             if response.status == 200:
                 content = yield from response.read()
+            yield from response.release()
 
         # parse
         xml = lxml.etree.fromstring(content) # pylint: disable=no-member

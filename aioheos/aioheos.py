@@ -229,7 +229,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
         """ event loop """
         while True:
             if self._reader is None:
-                yield from asyncio.sleep(1)
+                yield from asyncio.sleep(0.1)
                 continue
             # msg = yield from self._reader.read(64*1024)
             try:
@@ -270,7 +270,8 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
 
     def close(self):
         " close "
-        self._event_loop_task.cancel()
+        if self._event_loop_task:
+            self._event_loop_task.cancel()
 
     def register_for_change_events(self):
         " register for change events "
