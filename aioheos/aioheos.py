@@ -76,19 +76,10 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
     def ensure_player(self):
         """ ensure player """
         # timeout after 10 sec
-        for _ in range(0, 100):
+        for _ in range(0, 20):
+            self.request_players()
             if self._player_id is None:
-                yield from asyncio.sleep(0.1)
-            else:
-                return
-
-    @asyncio.coroutine
-    def ensure_reader(self):
-        """ ensure reader """
-        # timeout after 10 sec
-        for _ in range(0, 100):
-            if self._reader is None:
-                yield from asyncio.sleep(0.1)
+                yield from asyncio.sleep(0.5)
             else:
                 return
 
@@ -125,7 +116,6 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
             self._event_loop_task = self._loop.create_task(self._event_loop(trigger_callback))
 
         # request for players
-        self.request_players()
         yield from self.ensure_player()
 
     @asyncio.coroutine
@@ -135,7 +125,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
             try:
                 # pylint: disable=line-too-long
                 self._reader, self._writer = yield from asyncio.open_connection(host, port, loop=self._loop)
-                break
+                return
             except TimeoutError:
                 print('[E] Connection timed out, will try {}:{} again...'.format(self._host, port))
             except: # pylint: disable=bare-except
@@ -148,7 +138,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
         msg = 'heos://' + command
         if message:
             if 'pid' in message.keys() and message['pid'] is None:
-                message['pid'] = self.__player_id()
+                message['pid'] = self.player_id
             msg += '?' + '&'.join("{}={}".format(key, val) for (key, val) in message.items())
         msg += '\r\n'
         if self._verbose:
@@ -242,7 +232,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
                 if self._verbose:
                     print('[E] Peer reset our connection, try to reconnect...')
                 yield from self._connect(self._host)
-            except CancelledError:
+            except (GeneratorExit, CancelledError):
                 if self._verbose:
                     print('[I] Cancelling event loop...')
                 return
@@ -292,16 +282,17 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
         self._players = payload
         self._player_id = self._players[0]['pid']
 
-    def __player_id(self):
+    @property
+    def player_id(self):
         return self._player_id
 
     def request_player_info(self):
         " request player info "
-        self.send_command(GET_PLAYER_INFO, {'pid': self.__player_id()})
+        self.send_command(GET_PLAYER_INFO, {'pid': self.player_id})
 
     def request_play_state(self):
         " request play state "
-        self.send_command(GET_PLAY_STATE, {'pid': self.__player_id()})
+        self.send_command(GET_PLAY_STATE, {'pid': self.player_id})
 
     def _parse_play_state(self, payload):
         self._play_state = payload['state']
@@ -312,7 +303,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
 
     def request_mute_state(self):
         " request mute state "
-        self.send_command(GET_MUTE_STATE, {'pid': self.__player_id()})
+        self.send_command(GET_MUTE_STATE, {'pid': self.player_id})
 
     def _parse_mute_state(self, payload):
         self._mute_state = payload['state']
@@ -323,7 +314,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
 
     def request_volume(self):
         " request volume "
-        self.send_command(GET_VOLUME, {'pid': self.__player_id()})
+        self.send_command(GET_VOLUME, {'pid': self.player_id})
 
     def set_volume(self, volume_level):
         " set volume "
@@ -331,7 +322,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
             volume_level = 100
         if volume_level < 0:
             volume_level = 0
-        self.send_command(SET_VOLUME, {'pid': self.__player_id(),
+        self.send_command(SET_VOLUME, {'pid': self.player_id,
                                        'level': volume_level})
 
     def _parse_volume(self, message):
@@ -354,7 +345,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
         if state not in ('play', 'pause', 'stop'):
             AioHeosException('Not an accepted play state {}.'.format(state))
 
-        self.send_command(SET_PLAY_STATE, {'pid': self.__player_id(),
+        self.send_command(SET_PLAY_STATE, {'pid': self.player_id,
                                            'state': state})
 
     def stop(self):
@@ -371,7 +362,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
 
     def request_now_playing_media(self):
         " get playing media "
-        self.send_command(GET_NOW_PLAYING_MEDIA, {'pid': self.__player_id()})
+        self.send_command(GET_NOW_PLAYING_MEDIA, {'pid': self.player_id})
 
     def _parse_now_playing_media(self, payload):
         if 'artist' in payload.keys():
@@ -423,15 +414,15 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
 
     def request_queue(self):
         " request queue "
-        self.send_command(GET_QUEUE, {'pid': self.__player_id()})
+        self.send_command(GET_QUEUE, {'pid': self.player_id})
 
     def clear_queue(self):
         " clear queue "
-        self.send_command(CLEAR_QUEUE, {'pid': self.__player_id()})
+        self.send_command(CLEAR_QUEUE, {'pid': self.player_id})
 
     def request_play_next(self):
         " play next "
-        self.send_command(PLAY_NEXT, {'pid': self.__player_id()})
+        self.send_command(PLAY_NEXT, {'pid': self.player_id})
 
     def _parse_play_next(self, payload):
         " parse play next "
@@ -439,11 +430,11 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
 
     def request_play_previous(self):
         " play prev "
-        self.send_command(PLAY_PREVIOUS, {'pid': self.__player_id()})
+        self.send_command(PLAY_PREVIOUS, {'pid': self.player_id})
 
     def play_queue(self, qid):
         " play queue "
-        self.send_command(PLAY_QUEUE, {'pid': self.__player_id(),
+        self.send_command(PLAY_QUEUE, {'pid': self.player_id,
                                        'qid': qid})
 
     def request_groups(self):

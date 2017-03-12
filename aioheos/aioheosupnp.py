@@ -165,10 +165,10 @@ class Upnp(object):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.settimeout(2)
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-            sock.bind(('', self._upnp.get_ssdp_port()))
+            sock.bind(('', self._upnp.ssdp_port))
 
             tmpl = ('M-SEARCH * HTTP/1.1',
-                    'Host: ' + self._upnp.get_ssdp_host() + ':' + str(self._upnp.get_ssdp_port()),
+                    'Host: ' + self._upnp.ssdp_host + ':' + str(self._upnp.ssdp_port),
                     'Man: "ssdp:discover"',
                     'ST: {}'.format(self._search_target),
                     # 'ST: ssdp:all',
@@ -176,7 +176,7 @@ class Upnp(object):
                     '', '')
 
             msg = "\r\n".join(tmpl).encode('ascii')
-            self._transport.sendto(msg, (self._upnp.get_ssdp_host(), self._upnp.get_ssdp_port()))
+            self._transport.sendto(msg, (self._upnp.ssdp_host, self._upnp.ssdp_port))
 
         def datagram_received(self, data, _):
             """ datagram received """
@@ -310,11 +310,13 @@ class Upnp(object):
         if self._verbose:
             pprint(response_xml)
 
-    def get_ssdp_host(self):
+    @property
+    def ssdp_host(self):
         """ return ssdp host """
         return self._ssdp_host
 
-    def get_ssdp_port(self):
+    @property
+    def ssdp_port(self):
         """ return ssdp port """
         return self._ssdp_port
 

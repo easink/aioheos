@@ -9,10 +9,10 @@ import aioheos
 def heos_test(loop):
     """ test heos """
 
-    verbose = True
-
+    verbose = True 
     # host = None
     host = 'HEOS-1'
+
     heos = aioheos.AioHeos(loop, host, verbose=verbose)
 
     # connect to player
@@ -24,15 +24,14 @@ def heos_test(loop):
     heos.set_volume(10)
     heos.request_groups()
 
-    with open('hello.mp3', mode='rb') as fhello:
-        content = fhello.read()
-    content_type = 'audio/mpeg'
-    heos.play_content(content, content_type)
+    # with open('hello.mp3', mode='rb') as fhello:
+    #     content = fhello.read()
+    # content_type = 'audio/mpeg'
+    # heos.play_content(content, content_type)
 
     # do some work...
     yield from asyncio.sleep(2)
 
-    # close
     heos.close()
 
 
@@ -45,6 +44,8 @@ def main():
         loop.run_until_complete(heos_task)
     except KeyboardInterrupt:
         pass
+        # for task in asyncio.Task.all_tasks():
+        #     task.cancel()
     finally:
         loop.close()
 
