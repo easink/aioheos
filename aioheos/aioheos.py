@@ -70,7 +70,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
         self._upnp = aioheosupnp.AioHeosUpnp(loop=loop, verbose=verbose)
         self._reader = None
         self._writer = None
-        self._event_loop_task = None
+        self._subscribtion_task = None
 
     @asyncio.coroutine
     def ensure_player(self):
@@ -78,7 +78,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
         # timeout after 10 sec
         for _ in range(0, 20):
             self.request_players()
-            if self._player_id is None:
+            if self.player_id is None:
                 yield from asyncio.sleep(0.5)
             else:
                 return
@@ -93,7 +93,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
             return None
 
     @asyncio.coroutine
-    def connect(self, host=None, port=HEOS_PORT, trigger_callback=None):
+    def connect(self, host=None, port=HEOS_PORT, callback=None):
         """ setup proper connection """
         if host is not None:
             self._host = host
@@ -108,15 +108,24 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
             print('[I] Connecting to {}:{}'.format(self._host, port))
         yield from self._connect(self._host, port)
 
-        # please, do no prettying json
+        # please, do not prettify json
         self.register_pretty_json(False)
+        # and get events
+        self.register_for_change_events()
 
-        # setup event loop
-        if self._event_loop_task is None:
-            self._event_loop_task = self._loop.create_task(self._event_loop(trigger_callback))
+        # setup subscription loop
+        if self._subscribtion_task is None:
+            self._subscribtion_task = self._loop.create_task(
+                self._async_subscribe(callback))
 
         # request for players
         yield from self.ensure_player()
+
+        # request info
+        if self.player_id:
+            self.request_now_playing_media()
+            self.request_play_state()
+            self.request_volume()
 
     @asyncio.coroutine
     def _connect(self, host, port=HEOS_PORT):
@@ -209,32 +218,31 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
 
         return None
 
-    # @asyncio.coroutine
-    # def event_loop(self, trigger_callback=None):
-    #     self._event_loop_task = self._loop.create_task(self._event_loop(trigger_callback))
-    #     # yield from self._event_loop_task
+    @asyncio.coroutine
+    def _callback_wrapper(self, callback): # pylint: disable=no-self-use
+        if callback:
+            try:
+                yield from callback()
+            except: # pylint: disable=bare-except
+                pass
 
     @asyncio.coroutine
-    def _event_loop(self, trigger_callback=None): # pylint: disable=too-many-branches
+    def _async_subscribe(self, callback=None): # pylint: disable=too-many-branches
         """ event loop """
         while True:
             if self._reader is None:
                 yield from asyncio.sleep(0.1)
                 continue
-            # msg = yield from self._reader.read(64*1024)
             try:
                 msg = yield from self._reader.readline()
             except TimeoutError:
-                if self._verbose:
-                    print('[E] Connection got timed out, try to reconnect...')
+                print('[E] Connection got timed out, try to reconnect...')
                 yield from self._connect(self._host)
             except ConnectionResetError:
-                if self._verbose:
-                    print('[E] Peer reset our connection, try to reconnect...')
+                print('[E] Peer reset our connection, try to reconnect...')
                 yield from self._connect(self._host)
             except (GeneratorExit, CancelledError):
-                if self._verbose:
-                    print('[I] Cancelling event loop...')
+                print('[I] Cancelling event loop...')
                 return
             except: # pylint: disable=bare-except
                 print('[E] Ignoring', sys.exc_info()[0])
@@ -249,19 +257,21 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
                 self._parse_command(data)
             except AioHeosException as exc:
                 print('[E]', exc)
-                print('MSG', msg)
-                print('MSG decoded', msg.decode())
-                print('MSG json', data)
+                if self._verbose:
+                    print('MSG', msg)
+                    print('MSG decoded', msg.decode())
+                    print('MSG json', data)
                 continue
-            if trigger_callback:
+            if callback:
                 if self._verbose:
                     print('TRIGGER CALLBACK')
-                yield from trigger_callback()
+                self._loop.create_task(self._callback_wrapper(callback))
 
     def close(self):
         " close "
-        if self._event_loop_task:
-            self._event_loop_task.cancel()
+        print('[I] Closing down...')
+        if self._subscribtion_task:
+            self._subscribtion_task.cancel()
 
     def register_for_change_events(self):
         " register for change events "
@@ -284,6 +294,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
 
     @property
     def player_id(self):
+        " get player id "
         return self._player_id
 
     def request_player_info(self):
@@ -443,7 +454,7 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
 
     def toggle_mute(self):
         " toggle mute "
-        self.send_command(TOGGLE_MUTE, {'pid': self.__player_id()})
+        self.send_command(TOGGLE_MUTE, {'pid': self.player_id})
 
     def request_music_sources(self):
         " get music sources "
@@ -471,5 +482,5 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
 
     def _parse_player_now_playing_progress(self, message): # pylint: disable=invalid-name
         self._current_position = int(message['cur_pos'])
-        self._current_position_updated_at = datetime.now()
+        self._current_position_updated_at = datetime.utcnow()
         self._duration = int(message['duration'])
