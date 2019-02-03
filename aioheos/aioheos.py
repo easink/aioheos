@@ -30,6 +30,7 @@ GET_GROUPS = 'group/get_groups'
 
 GET_MUSIC_SOURCES = 'browser/get_music_sources'
 BROWSE = 'browser/browse'
+PLAY_STREAM = 'browse/play_stream'
 
 PLAYER_VOLUME_CHANGED = 'event/player_volume_changed'
 PLAYER_STATE_CHANGED = 'event/player_state_changed'
@@ -463,6 +464,10 @@ class AioHeos(object): # pylint: disable=too-many-public-methods,too-many-instan
     def request_browse_source(self, sid):
         " browse source "
         self.send_command(BROWSE, {'sid': sid, 'range': '0,29'})
+
+    def play_favourite(self, sid, mid):
+        " play favourite "
+        self.send_command(PLAY_STREAM, {'pid': self.player_id, 'sid': sid, 'mid': mid})
 
     def play_content(self, content, content_type='audio/mpeg'):
         """ play content """
