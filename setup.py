@@ -16,4 +16,9 @@ setup(name='aioheos',
           'lxml',
           'aiohttp',
       ],
+      classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+      ],
       zip_safe=False)
