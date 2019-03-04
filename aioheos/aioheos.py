@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime
+from pytz import UTC
 import sys
 from concurrent.futures import CancelledError
 from . import aioheosupnp
@@ -68,9 +69,9 @@ class AioHeos():    # pylint: disable=too-many-public-methods,too-many-instance-
         self._play_state = None
         self._mute_state = None
         self._volume_level = 0
-        self._current_position = 0
-        self._current_position_updated_at = 0
-        self._duration = 0
+        self._current_position = None
+        self._current_position_updated_at = None
+        self._duration = None
         self._media_artist = None
         self._media_album = None
         self._media_title = None
@@ -408,16 +409,11 @@ class AioHeos():    # pylint: disable=too-many-public-methods,too-many-instance-
         self.send_command(GET_NOW_PLAYING_MEDIA, {'pid': self.player_id})
 
     def _parse_now_playing_media(self, payload):
-        if 'artist' in payload:
-            self._media_artist = payload['artist']
-        if 'album' in payload:
-            self._media_album = payload['album']
-        if 'song' in payload:
-            self._media_title = payload['song']
-        if 'image_url' in payload:
-            self._media_image_url = payload['image_url']
-        if 'mid' in payload:
-            self._media_id = payload['mid']
+        self._media_artist = payload.get('artist')
+        self._media_album = payload.get('album')
+        self._media_title = payload.get('song')
+        self._media_image_url = payload.get('image_url')
+        self._media_id = payload.get('mid')
 
     def get_media_artist(self):
         """ get media artist """
@@ -517,5 +513,5 @@ class AioHeos():    # pylint: disable=too-many-public-methods,too-many-instance-
 
     def _parse_player_now_playing_progress(self, message):    # pylint: disable=invalid-name
         self._current_position = int(message['cur_pos'])
-        self._current_position_updated_at = datetime.utcnow()
+        self._current_position_updated_at = datetime.now(UTC)
         self._duration = int(message['duration'])
