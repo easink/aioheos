@@ -2,11 +2,14 @@
 " Heos python lib "
 
 import asyncio
-import sys
 import json
+import logging
 from datetime import datetime
+import sys
 from concurrent.futures import CancelledError
 from . import aioheosupnp
+
+_LOGGER = logging.getLogger(__name__)
 
 HEOS_PORT = 1255
 
@@ -42,14 +45,16 @@ SYSTEM_REGISTER_FOR_EVENTS = 'system/register_for_change_events'
 SYSTEM_SIGNIN = 'system/sign_in'
 SYSTEM_SIGNOUT = 'system/sign_out'
 
+
 class AioHeosException(Exception):
     " AioHeosException class "
+
     # pylint: disable=super-init-not-called
     def __init__(self, message):
         self.message = message
 
 
-class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-attributes
+class AioHeos():    # pylint: disable=too-many-public-methods,too-many-instance-attributes
     " Asynchronous Heos class "
 
     # pylint: disable=too-many-arguments
@@ -85,10 +90,9 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
         # timeout after 10 sec
         for _ in range(0, 20):
             self.request_players()
-            if self.player_id is None:
-                yield from asyncio.sleep(0.5)
-            else:
+            if self.player_id:
                 return
+            yield from asyncio.sleep(0.5)
 
     @asyncio.coroutine
     def ensure_login(self):
@@ -96,10 +100,9 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
         # timeout after 20 sec
         self.login()
         for _ in range(0, 20):
-            if not self._logged_in:
-                yield from asyncio.sleep(0.5)
-            else:
+            if self._logged_in:
                 return
+            yield from asyncio.sleep(0.5)
 
     @staticmethod
     def _url_to_addr(url):
@@ -112,17 +115,16 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
     @asyncio.coroutine
     def connect(self, host=None, port=HEOS_PORT, callback=None):
         """ setup proper connection """
-        if host is not None:
+        if host:
             self._host = host
-
-        # discover
-        if not self._host:
+        else:
+            # discover
             url = yield from self._upnp.discover()
             self._host = self._url_to_addr(url)
 
         # connect
         if self._verbose:
-            print('[I] Connecting to {}:{}'.format(self._host, port))
+            _LOGGER.debug('[I] Connecting to {}:{}'.format(self._host, port))
         yield from self._connect(self._host, port)
 
         # please, do not prettify json
@@ -131,9 +133,8 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
         self.register_for_change_events()
 
         # setup subscription loop
-        if self._subscribtion_task is None:
-            self._subscribtion_task = self._loop.create_task(
-                self._async_subscribe(callback))
+        if not self._subscribtion_task:
+            self._subscribtion_task = self._loop.create_task(self._async_subscribe(callback))
 
         # request for players
         yield from self.ensure_player()
@@ -156,9 +157,9 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
                 self._reader, self._writer = yield from asyncio.open_connection(host, port, loop=self._loop)
                 return
             except TimeoutError:
-                print('[E] Connection timed out, will try {}:{} again...'.format(self._host, port))
-            except: # pylint: disable=bare-except
-                print('[E]', sys.exc_info()[0])
+                _LOGGER.warn('[W] Connection timed out, will try {}:{} again...'.format(self._host, port))
+            except:    # pylint: disable=bare-except
+                _LOGGER.error('[E]', sys.exc_info()[0])
 
             yield from asyncio.sleep(5.0)
 
@@ -166,12 +167,12 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
         " send command "
         msg = 'heos://' + command
         if message:
-            if 'pid' in message.keys() and message['pid'] is None:
+            if not message.get('pid'):
                 message['pid'] = self.player_id
             msg += '?' + '&'.join("{}={}".format(key, val) for (key, val) in message.items())
         msg += '\r\n'
         if self._verbose:
-            print(msg)
+            _LOGGER.debug(msg)
         self._writer.write(msg.encode('ascii'))
 
     @staticmethod
@@ -186,7 +187,7 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
                 elif len(parts) == 1:
                     result[parts[0]] = True
                 else:
-                    print('[E] parsing message ({}).'.format(message))
+                    _LOGGER.error('[E] parsing message ({}).'.format(message))
 
         return result
 
@@ -194,8 +195,8 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
         " call parser functions "
         # if self._verbose:
         if self._verbose:
-            print('DISPATCHER')
-            print((command, payload))
+            _LOGGER.debug('DISPATCHER')
+            _LOGGER.debug((command, payload))
         callbacks = {
             GET_PLAYERS: self._parse_players,
             GET_PLAY_STATE: self._parse_play_state,
@@ -211,27 +212,25 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
             PLAYER_NOW_PLAYING_PROGRESS: self._parse_player_now_playing_progress,
             SYSTEM_SIGNIN: self._parse_system_signin,
         }
-        commands_ignored = (
-            SYSTEM_PRETTIFY,
-        )
-        if command in callbacks.keys():
+        commands_ignored = (SYSTEM_PRETTIFY, )
+        if command in callbacks:
             callbacks[command](payload)
         elif command in commands_ignored:
             if self._verbose:
-                print('[I] command "{}" is ignored.'.format(command))
+                _LOGGER.debug('[I] command "{}" is ignored.'.format(command))
         else:
-            print('[W] command "{}" is not handled.'.format(command))
+            _LOGGER.warn('[W] command "{}" is not handled.'.format(command))
 
     def _parse_command(self, data):
         " parse command "
         try:
             data_heos = data['heos']
             command = data_heos['command']
-            if 'result' in data_heos.keys() and data_heos['result'] == 'fail':
+            if data_heos.get('result') == 'fail':
                 raise AioHeosException(data_heos['message'])
-            if 'payload' in data.keys():
+            if 'payload' in data:
                 self._dispatcher(command, data['payload'])
-            elif 'message' in data_heos.keys():
+            elif 'message' in data_heos:
                 if data_heos['message'] == 'command under process':
                     return None
                 message = self._parse_message(data_heos['message'])
@@ -247,57 +246,57 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
         return None
 
     @asyncio.coroutine
-    def _callback_wrapper(self, callback): # pylint: disable=no-self-use
+    def _callback_wrapper(self, callback):    # pylint: disable=no-self-use
         if callback:
             try:
                 yield from callback()
-            except: # pylint: disable=bare-except
+            except:    # pylint: disable=bare-except
                 pass
 
     @asyncio.coroutine
-    def _async_subscribe(self, callback=None): # pylint: disable=too-many-branches
+    def _async_subscribe(self, callback=None):    # pylint: disable=too-many-branches
         """ event loop """
         while True:
-            if self._reader is None:
+            if not self._reader:
                 yield from asyncio.sleep(0.1)
                 continue
             try:
                 msg = yield from self._reader.readline()
             except TimeoutError:
-                print('[E] Connection got timed out, try to reconnect...')
+                _LOGGER.warn('[W] Connection got timed out, try to reconnect...')
                 yield from self._connect(self._host)
             except ConnectionResetError:
-                print('[E] Peer reset our connection, try to reconnect...')
+                _LOGGER.warn('[W] Peer reset our connection, try to reconnect...')
                 yield from self._connect(self._host)
             except (GeneratorExit, CancelledError):
-                print('[I] Cancelling event loop...')
+                _LOGGER.info('[I] Cancelling event loop...')
                 return
-            except: # pylint: disable=bare-except
-                print('[E] Ignoring', sys.exc_info()[0])
+            except:    # pylint: disable=bare-except
+                _LOGGER.error('[E] Ignoring', sys.exc_info()[0])
             if self._verbose:
-                print(msg.decode())
+                _LOGGER.debug(msg.decode())
             # simplejson doesnt need to decode from byte to ascii
             data = json.loads(msg.decode())
             if self._verbose:
-                print('DATA:')
-                print(data)
+                _LOGGER.debug('DATA:')
+                _LOGGER.debug(data)
             try:
                 self._parse_command(data)
             except AioHeosException as exc:
-                print('[E]', exc)
+                _LOGGER.error('[E]', exc)
                 if self._verbose:
-                    print('MSG', msg)
-                    print('MSG decoded', msg.decode())
-                    print('MSG json', data)
+                    _LOGGER.debug('MSG', msg)
+                    _LOGGER.debug('MSG decoded', msg.decode())
+                    _LOGGER.debug('MSG json', data)
                 continue
             if callback:
                 if self._verbose:
-                    print('TRIGGER CALLBACK')
+                    _LOGGER.debug('TRIGGER CALLBACK')
                 self._loop.create_task(self._callback_wrapper(callback))
 
     def close(self):
         " close "
-        print('[I] Closing down...')
+        _LOGGER.info('[I] Closing down...')
         if self._subscribtion_task:
             self._subscribtion_task.cancel()
 
@@ -308,7 +307,7 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
     def register_pretty_json(self, enable=False):
         " register for pretty json "
         set_enable = 'off'
-        if enable is True:
+        if enable:
             set_enable = 'on'
         self.send_command(SYSTEM_PRETTIFY, {'enable': set_enable})
 
@@ -368,8 +367,7 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
             volume_level = 100
         if volume_level < 0:
             volume_level = 0
-        self.send_command(SET_VOLUME, {'pid': self.player_id,
-                                       'level': volume_level})
+        self.send_command(SET_VOLUME, {'pid': self.player_id, 'level': volume_level})
 
     def _parse_volume(self, message):
         self._volume_level = message['level']
@@ -391,8 +389,7 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
         if state not in ('play', 'pause', 'stop'):
             AioHeosException('Not an accepted play state {}.'.format(state))
 
-        self.send_command(SET_PLAY_STATE, {'pid': self.player_id,
-                                           'state': state})
+        self.send_command(SET_PLAY_STATE, {'pid': self.player_id, 'state': state})
 
     def stop(self):
         " stop player "
@@ -411,15 +408,15 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
         self.send_command(GET_NOW_PLAYING_MEDIA, {'pid': self.player_id})
 
     def _parse_now_playing_media(self, payload):
-        if 'artist' in payload.keys():
+        if 'artist' in payload:
             self._media_artist = payload['artist']
-        if 'album' in payload.keys():
+        if 'album' in payload:
             self._media_album = payload['album']
-        if 'song' in payload.keys():
+        if 'song' in payload:
             self._media_title = payload['song']
-        if 'image_url' in payload.keys():
+        if 'image_url' in payload:
             self._media_image_url = payload['image_url']
-        if 'mid' in payload.keys():
+        if 'mid' in payload:
             self._media_id = payload['mid']
 
     def get_media_artist(self):
@@ -472,7 +469,7 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
 
     def _parse_play_next(self, payload):
         " parse play next "
-        pass # pylint: disable=unnecessary-pass
+        pass    # pylint: disable=unnecessary-pass
 
     def request_play_previous(self):
         " play prev "
@@ -480,8 +477,7 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
 
     def play_queue(self, qid):
         " play queue "
-        self.send_command(PLAY_QUEUE, {'pid': self.player_id,
-                                       'qid': qid})
+        self.send_command(PLAY_QUEUE, {'pid': self.player_id, 'qid': qid})
 
     def request_groups(self):
         " get groups "
@@ -515,11 +511,11 @@ class AioHeos(): # pylint: disable=too-many-public-methods,too-many-instance-att
     def _parse_player_state_changed(self, message):
         self._play_state = message['state']
 
-    def _parse_player_now_playing_changed(self, _): # pylint: disable=invalid-name
+    def _parse_player_now_playing_changed(self, _):    # pylint: disable=invalid-name
         " event / now playing changed, request what changed. "
         self.request_now_playing_media()
 
-    def _parse_player_now_playing_progress(self, message): # pylint: disable=invalid-name
+    def _parse_player_now_playing_progress(self, message):    # pylint: disable=invalid-name
         self._current_position = int(message['cur_pos'])
         self._current_position_updated_at = datetime.utcnow()
         self._duration = int(message['duration'])
