@@ -69,9 +69,9 @@ class AioHeos():    # pylint: disable=too-many-public-methods,too-many-instance-
         self._play_state = None
         self._mute_state = None
         self._volume_level = 0
-        self._current_position = None
+        self._current_position = 0
         self._current_position_updated_at = None
-        self._duration = None
+        self._duration = 0
         self._media_artist = None
         self._media_album = None
         self._media_title = None
@@ -218,9 +218,9 @@ class AioHeos():    # pylint: disable=too-many-public-methods,too-many-instance-
             callbacks[command](payload)
         elif command in commands_ignored:
             if self._verbose:
-                _LOGGER.debug('[I] command "{}" is ignored.'.format(command))
+                _LOGGER.debug('[D] command "{}" is ignored.'.format(command))
         else:
-            _LOGGER.warn('[W] command "{}" is not handled.'.format(command))
+            _LOGGER.debug('[D] command "{}" is not handled.'.format(command))
 
     def _parse_command(self, data):
         " parse command "
@@ -502,7 +502,7 @@ class AioHeos():    # pylint: disable=too-many-public-methods,too-many-instance-
 
     def _parse_player_volume_changed(self, message):
         self._mute_state = message['mute']
-        self._volume_level = int(message['level'])
+        self._volume_level = float(message['level'])
 
     def _parse_player_state_changed(self, message):
         self._play_state = message['state']
