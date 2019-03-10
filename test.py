@@ -5,8 +5,7 @@ import asyncio
 import aioheos
 
 
-@asyncio.coroutine
-def heos_test(loop):
+async def heos_test(loop):
     """Test heos."""
     verbose = True
     # host = None
@@ -15,13 +14,13 @@ def heos_test(loop):
     heos = aioheos.AioHeosController(loop, host=host, verbose=verbose)
 
     # connect to player
-    yield from heos.connect()
+    await heos.connect()
 
     player_one = heos.get_players()[0]
 
     player_one.request_update()
     player_one.set_volume(10)
-    yield from asyncio.sleep(1)
+    await asyncio.sleep(1)
     print(player_one.volume)
 
     heos.request_groups()
@@ -32,7 +31,7 @@ def heos_test(loop):
     # player_one.play_content(content, content_type)
 
     # do some work...
-    yield from asyncio.sleep(2)
+    await asyncio.sleep(2)
 
     heos.close()
 

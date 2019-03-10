@@ -120,44 +120,40 @@ class AioHeosController():
         self._favourites_sid = None
         self._music_sources = {}
 
-    @asyncio.coroutine
-    def ensure_player(self):
+    async def ensure_player(self):
         """Ensure player."""
         # timeout after 10 sec
         for _ in range(0, 20):
             self.request_players()
             if self.player_id:
                 return
-            yield from asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)
 
-    @asyncio.coroutine
-    def ensure_group(self):
+    async def ensure_group(self):
         """Ensure group."""
         # timeout after 10 sec
         self.request_groups()
         for _ in range(0, 20):
             if self._groups:
                 return
-            yield from asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)
 
-    @asyncio.coroutine
-    def ensure_login(self):
+    async def ensure_login(self):
         """Ensure login."""
         # timeout after 20 sec
         self.login()
         for _ in range(0, 20):
             if not self._need_login:
                 return
-            yield from asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)
 
-    @asyncio.coroutine
-    def ensure_favourites_loaded(self):
+    async def ensure_favourites_loaded(self):
         """Ensure favourites loaded."""
         # timeout after 20 sec
         for _ in range(0, 20):
             if self._favourites:
                 return
-            yield from asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)
 
     @staticmethod
     def _url_to_addr(url):
@@ -167,8 +163,7 @@ class AioHeosController():
             return addr.group(1)
         return None
 
-    @asyncio.coroutine
-    def connect(self, host=None, port=HEOS_PORT, callback=None):
+    async def connect(self, host=None, port=HEOS_PORT, callback=None):
         """Connect to device."""
         if host:
             self._host = host
@@ -176,13 +171,13 @@ class AioHeosController():
             pass
         else:
             # discover
-            url = yield from self._upnp.discover()
+            url = await self._upnp.discover()
             self._host = self._url_to_addr(url)
 
         # connect
         if self._verbose:
             _LOGGER.debug('[I] Connecting to %s:%s', self._host, port)
-        yield from self._connect(self._host, port)
+        await self._connect(self._host, port)
 
         # please, do not prettify json
         self.register_pretty_json(False)
@@ -195,20 +190,19 @@ class AioHeosController():
                 self._async_subscribe(callback))
 
         # request for players
-        yield from self.ensure_player()
-        yield from self.ensure_group()
+        await self.ensure_player()
+        await self.ensure_group()
         if self._need_login:
-            yield from self.ensure_login()
+            await self.ensure_login()
             self.request_music_sources()
 
-    @asyncio.coroutine
-    def _connect(self, host, port=HEOS_PORT):
+    async def _connect(self, host, port=HEOS_PORT):
         """Connect."""
         while True:
             wait = 5
             try:
                 # pylint: disable=line-too-long
-                self._reader, self._writer = yield from asyncio.open_connection(
+                self._reader, self._writer = await asyncio.open_connection(
                     host, port, loop=self._loop)
                 return
             except TimeoutError:
@@ -223,7 +217,7 @@ class AioHeosController():
             except:
                 _LOGGER.error('[E] %s', sys.exc_info()[0])
 
-            yield from asyncio.sleep(wait)
+            await asyncio.sleep(wait)
 
     def send_command(self, command, message=None):
         """Send command."""
@@ -354,32 +348,30 @@ class AioHeosController():
 
         return None
 
-    @asyncio.coroutine
-    def _callback_wrapper(self, callback):    # pylint: disable=no-self-use
+    async def _callback_wrapper(self, callback):    # pylint: disable=no-self-use
         if callback:
             try:
-                yield from callback()
+                await callback()
             except:    # pylint: disable=bare-except
                 pass
 
-    @asyncio.coroutine
-    def _async_subscribe(self, callback=None):
+    async def _async_subscribe(self, callback=None):
         """ event loop """
         # pylint: disable=too-many-branches,logging-too-many-args
         while True:
             if not self._reader:
-                yield from asyncio.sleep(0.1)
+                await asyncio.sleep(0.1)
                 continue
             try:
-                msg = yield from self._reader.readline()
+                msg = await self._reader.readline()
             except TimeoutError:
                 _LOGGER.warning(
                     '[W] Connection got timed out, try to reconnect...')
-                yield from self._connect(self._host)
+                await self._connect(self._host)
             except ConnectionResetError:
                 _LOGGER.warning(
                     '[W] Peer reset our connection, try to reconnect...')
-                yield from self._connect(self._host)
+                await self._connect(self._host)
             except (GeneratorExit, CancelledError):
                 _LOGGER.info('[I] Cancelling event loop...')
                 return

@@ -73,8 +73,7 @@ class Http():
         path = match.group(4)
         return (host, port, path)
 
-    @asyncio.coroutine
-    def request(self, uri, method, data=None, headers=None):
+    async def request(self, uri, method, data=None, headers=None):
         """ request """
         if headers is None:
             headers = {}
@@ -86,11 +85,11 @@ class Http():
         self._headers.update(headers)
         request = method.encode() + self.get_headers().encode() + data
 
-        reader, writer = yield from asyncio.open_connection(
+        reader, writer = await asyncio.open_connection(
             host, port, loop=self._loop)
         writer.write(request.encode())
 
-        reply = yield from reader.read()
+        reply = await reader.read()
         writer.close()
         return reply
 
@@ -135,7 +134,7 @@ class UpnpException(Exception):
         self.message = message
 
 
-class Upnp(object):
+class Upnp():
     " Upnp class "
 
     # pylint: disable=redefined-outer-name
@@ -222,23 +221,23 @@ class Upnp(object):
                 print("[I] Connection lost.")
             self._transport.close()
 
-    @asyncio.coroutine
-    def discover(self, search_target, addr=None):    # pylint: disable=unused-argument
+    async def discover(self, search_target, _addr=None):
         " search "
         future = asyncio.Future()
         self._asyncio_ensure_future(
             self._loop.create_datagram_endpoint(
-                lambda: Upnp.DiscoverProtocol(self, future, search_target, self._verbose),
+                lambda: Upnp.DiscoverProtocol(
+                    self, future, search_target, self._verbose
+                ),
                 family=socket.AF_INET,
                 proto=socket.IPPROTO_UDP))
-        yield from future
+        await future
         self._url = future.result()
         return self._url
 
-    @asyncio.coroutine
-    def discover_mediarenderer(self, addr=None):
+    async def discover_mediarenderer(self, addr=None):
         " search media renderer "
-        yield from self.discover(MEDIA_DEVICE, addr)
+        await self.discover(MEDIA_DEVICE, addr)
 
     # b'POST /AVTransport/control HTTP/1.1
     #   Host: XXXX:YYYY
@@ -248,8 +247,7 @@ class Upnp(object):
     #   user-agent: Python-httplib2/0.9.2 (gzip)
     #   content-type: text/xml; charset="utf-8"
     #   '
-    @asyncio.coroutine
-    def _soapaction(self, service, action, url=None, body=None):
+    async def _soapaction(self, service, action, url=None, body=None):
         " soap action "
         if not url:
             url = self._url
@@ -261,27 +259,26 @@ class Upnp(object):
 
         content = ''
         with aiohttp.ClientSession(loop=self._loop) as session:
-            response = yield from session.post(url, data=body, headers=headers)
+            response = await session.post(url, data=body, headers=headers)
             if response.status == 200:
-                content = yield from response.read()
-            yield from response.release()
+                content = await response.read()
+            await response.release()
 
         if self._verbose:
             print(content)
         return content
 
-    @asyncio.coroutine
-    def query_renderer(self, service, url=None):
+    async def query_renderer(self, service, url=None):
         " query renderer "
         if not url:
             url = self._url
 
         # query renderer
         with aiohttp.ClientSession(loop=self._loop) as session:
-            response = yield from session.get(url)
+            response = await session.get(url)
             if response.status == 200:
-                content = yield from response.read()
-            yield from response.release()
+                content = await response.read()
+            await response.release()
 
         # parse
         xml = lxml.etree.fromstring(content)    # pylint: disable=no-member
@@ -295,8 +292,7 @@ class Upnp(object):
         except TypeError:
             raise UpnpException('Cant find renderer')
 
-    @asyncio.coroutine
-    def set_avtransport_uri(self, uri, url=None):
+    async def set_avtransport_uri(self, uri, url=None):
         " load url "
         service = AVTRANSPORT_SERVICE
         action = "SetAVTransportURI"
@@ -313,12 +309,11 @@ class Upnp(object):
             '</s:Body>'
             '</s:Envelope>').format(
                 service=service, uri=uri)
-        response_xml = yield from self._soapaction(service, action, url, body)
+        response_xml = await self._soapaction(service, action, url, body)
         if self._verbose:
             pprint(response_xml)
 
-    @asyncio.coroutine
-    def set_play(self, url=None):
+    async def set_play(self, url=None):
         " play "
         service = AVTRANSPORT_SERVICE
         # pylint: disable=line-too-long,bad-continuation
@@ -332,7 +327,7 @@ class Upnp(object):
             '</u:Play>'
             '</s:Body>'
             '</s:Envelope>').format(service)
-        response_xml = yield from self._soapaction(service, "Play", url, body)
+        response_xml = await self._soapaction(service, "Play", url, body)
         if self._verbose:
             pprint(response_xml)
 
@@ -384,33 +379,29 @@ class AioHeosUpnp():
         self._path = None
         self._renderer_uri = None
 
-    @asyncio.coroutine
-    def discover(self):
+    async def discover(self):
         " discover "
-        self._url = yield from self._upnp.discover(DENON_DEVICE)
+        self._url = await self._upnp.discover(DENON_DEVICE)
         return self._url
 
-    @asyncio.coroutine
-    def query_renderer(self):
+    async def query_renderer(self):
         " query renderer "
         if not self._url:
             return
-        self._path = yield from self._upnp.query_renderer(
+        self._path = await self._upnp.query_renderer(
             AVTRANSPORT_SERVICE, self._url)
         self._renderer_uri = self._url + self._path
 
-    @asyncio.coroutine
-    def _play_uri(self, uri):
+    async def _play_uri(self, uri):
         " play an url "
         if not self._url:
-            yield from self.discover()
+            await self.discover()
         if not self._renderer_uri:
-            yield from self.query_renderer()
-        yield from self._upnp.set_avtransport_uri(uri, self._renderer_uri)
-        yield from self._upnp.set_play(self._renderer_uri)
+            await self.query_renderer()
+        await self._upnp.set_avtransport_uri(uri, self._renderer_uri)
+        await self._upnp.set_play(self._renderer_uri)
 
-    @asyncio.coroutine
-    def play_content(self, content, content_type='audio/mpeg', port=0):
+    async def play_content(self, content, content_type='audio/mpeg', port=0):
         " play "
         address = _get_ipaddress()
 
@@ -432,21 +423,20 @@ class AioHeosUpnp():
         # play request
         play_uri = self._loop.create_task(self._play_uri(uri))
 
-        yield from asyncio.wait([http_server, play_uri])
+        await asyncio.wait([http_server, play_uri])
 
 
-@asyncio.coroutine
-def main(aioloop):    # pylint: disable=redefined-outer-name
+async def main(aioloop):    # pylint: disable=redefined-outer-name
     " main "
 
     _verbose = True
     upnp = AioHeosUpnp(loop=aioloop, verbose=_verbose)
-    url = yield from upnp.discover()
+    url = await upnp.discover()
     if _verbose:
         pprint(url)
 
     print('Query renderer')
-    yield from upnp.query_renderer()
+    await upnp.query_renderer()
 
     content = b''
     with open('hello.mp3', mode='rb') as fhello:
@@ -455,7 +445,7 @@ def main(aioloop):    # pylint: disable=redefined-outer-name
     http_port = 8888
 
     print('Play content')
-    yield from upnp.play_content(content, content_type, http_port)
+    await upnp.play_content(content, content_type, http_port)
     print('Play done')
 
 
