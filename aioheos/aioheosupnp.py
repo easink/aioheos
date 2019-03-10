@@ -19,7 +19,7 @@ SSDP_HOST = '239.255.255.250'
 SSDP_PORT = 1900
 
 # DENON_DEVICE = 'urn:schemas-denon-com:device:ACT-Denon:1'
-DENON_DEVICE = 'urn:schemas-denon-com:device:AiosDevice:1' # for dlna
+DENON_DEVICE = 'urn:schemas-denon-com:device:AiosDevice:1'    # for dlna
 MEDIA_DEVICE = 'urn:schemas-upnp-org:device:MediaRenderer:1'
 AVTRANSPORT_SERVICE = 'urn:schemas-upnp-org:service:AVTransport:1'
 
@@ -31,16 +31,19 @@ def _get_ipaddress():
     sock.close()
     return ipaddress
 
+
 class HttpException(Exception):
-    " HttpException class "
+    """HttpException class."""
+
     # pylint: disable=super-init-not-called
     def __init__(self, message):
         self.message = message
 
-class Http(object):
-    """ HTTP """
 
-    def __init__(self, loop): # pylint: disable=redefined-outer-name
+class Http():
+    """HTTP."""
+
+    def __init__(self, loop):    # pylint: disable=redefined-outer-name
         self._loop = loop
         self._headers = {}
 
@@ -65,7 +68,7 @@ class Http(object):
         match = re.search('https?://([^:/]+)(:([0-9]+))?(.*)$', uri)
         host = match.group(1)
         port = match.group(3)
-        if port is None:
+        if not port:
             port = 80
         path = match.group(4)
         return (host, port, path)
@@ -77,12 +80,14 @@ class Http(object):
             headers = {}
         host, port, path = Http._parse_uri(uri)
 
-        method = "{method} {path} HTTP/1.0\r\n".format(method=method, path=path)
+        method = "{method} {path} HTTP/1.0\r\n".format(
+            method=method, path=path)
         self._add_user_agent_header()
         self._headers.update(headers)
         request = method.encode() + self.get_headers().encode() + data
 
-        reader, writer = yield from asyncio.open_connection(host, port, loop=self._loop)
+        reader, writer = yield from asyncio.open_connection(
+            host, port, loop=self._loop)
         writer.write(request.encode())
 
         reply = yield from reader.read()
@@ -90,7 +95,7 @@ class Http(object):
         return reply
 
 
-class HttpResponse(object):
+class HttpResponse():
     """ HttpResponse """
 
     def __init__(self, status):
@@ -124,6 +129,7 @@ class HttpResponse(object):
 
 class UpnpException(Exception):
     " UpnpException class "
+
     # pylint: disable=super-init-not-called
     def __init__(self, message):
         self.message = message
@@ -133,7 +139,11 @@ class Upnp(object):
     " Upnp class "
 
     # pylint: disable=redefined-outer-name
-    def __init__(self, loop, ssdp_host=SSDP_HOST, ssdp_port=SSDP_PORT, verbose=False):
+    def __init__(self,
+                 loop,
+                 ssdp_host=SSDP_HOST,
+                 ssdp_port=SSDP_PORT,
+                 verbose=False):
         self._verbose = verbose
         self._loop = loop
         self._ssdp_host = ssdp_host
@@ -167,16 +177,20 @@ class Upnp(object):
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
             sock.bind(('', self._upnp.ssdp_port))
 
-            tmpl = ('M-SEARCH * HTTP/1.1',
-                    'Host: ' + self._upnp.ssdp_host + ':' + str(self._upnp.ssdp_port),
-                    'Man: "ssdp:discover"',
-                    'ST: {}'.format(self._search_target),
-                    # 'ST: ssdp:all',
-                    'MX: 3',
-                    '', '')
+            tmpl = (
+                'M-SEARCH * HTTP/1.1',
+                'Host: ' + self._upnp.ssdp_host + ':' +
+                str(self._upnp.ssdp_port),
+                'Man: "ssdp:discover"',
+                'ST: {}'.format(self._search_target),
+            # 'ST: ssdp:all',
+                'MX: 3',
+                '',
+                '')
 
             msg = "\r\n".join(tmpl).encode('ascii')
-            self._transport.sendto(msg, (self._upnp.ssdp_host, self._upnp.ssdp_port))
+            self._transport.sendto(
+                msg, (self._upnp.ssdp_host, self._upnp.ssdp_port))
 
         def datagram_received(self, data, _):
             """ datagram received """
@@ -186,7 +200,11 @@ class Upnp(object):
             # if content[0].startswith('NOTIFY'):
             if content[0] == 'HTTP/1.1 200 OK':
                 # pylint: disable=line-too-long
-                reply = {k.lower():v for k, v in [item.split(': ') for item in content if ": " in item]}
+                reply = {
+                    k.lower(): v
+                    for k, v in
+                    [item.split(': ') for item in content if ": " in item]
+                }
                 if self._verbose:
                     print(reply['st'])
                 if reply['st'] == self._search_target:
@@ -194,7 +212,7 @@ class Upnp(object):
                     self._future.set_result(url)
                     self._transport.close()
 
-        def error_received(self, exc): # pylint: disable=no-self-use
+        def error_received(self, exc):    # pylint: disable=no-self-use
             """ error received """
             print('[E] Error received:', exc)
 
@@ -205,13 +223,14 @@ class Upnp(object):
             self._transport.close()
 
     @asyncio.coroutine
-    def discover(self, search_target, addr=None): # pylint: disable=unused-argument
+    def discover(self, search_target, addr=None):    # pylint: disable=unused-argument
         " search "
         future = asyncio.Future()
         self._asyncio_ensure_future(
             self._loop.create_datagram_endpoint(
                 lambda: Upnp.DiscoverProtocol(self, future, search_target, self._verbose),
-                family=socket.AF_INET, proto=socket.IPPROTO_UDP))
+                family=socket.AF_INET,
+                proto=socket.IPPROTO_UDP))
         yield from future
         self._url = future.result()
         return self._url
@@ -232,11 +251,13 @@ class Upnp(object):
     @asyncio.coroutine
     def _soapaction(self, service, action, url=None, body=None):
         " soap action "
-        if url is None:
+        if not url:
             url = self._url
 
-        headers = {'Content-Type': 'text/xml; charset="utf-8"',
-                   'SOAPAction': '"{}#{}"'.format(service, action)}
+        headers = {
+            'Content-Type': 'text/xml; charset="utf-8"',
+            'SOAPAction': '"{}#{}"'.format(service, action)
+        }
 
         content = ''
         with aiohttp.ClientSession(loop=self._loop) as session:
@@ -252,7 +273,7 @@ class Upnp(object):
     @asyncio.coroutine
     def query_renderer(self, service, url=None):
         " query renderer "
-        if url is None:
+        if not url:
             url = self._url
 
         # query renderer
@@ -263,10 +284,12 @@ class Upnp(object):
             yield from response.release()
 
         # parse
-        xml = lxml.etree.fromstring(content) # pylint: disable=no-member
+        xml = lxml.etree.fromstring(content)    # pylint: disable=no-member
         # print(lxml.etree.tostring(xml, pretty_print=True).decode())
-        xpath_search = '//n:service[n:serviceType="{}"]/n:controlURL/text()'.format(service)
-        path = xml.xpath(xpath_search, namespaces={'n':'urn:schemas-upnp-org:device-1-0'})
+        xpath_search = '//n:service[n:serviceType="{}"]/n:controlURL/text()'.format(
+            service)
+        path = xml.xpath(
+            xpath_search, namespaces={'n': 'urn:schemas-upnp-org:device-1-0'})
         try:
             return path[0]
         except TypeError:
@@ -278,16 +301,18 @@ class Upnp(object):
         service = AVTRANSPORT_SERVICE
         action = "SetAVTransportURI"
         # pylint: disable=line-too-long,bad-continuation
-        body = ('<?xml version="1.0" encoding="utf-8"?>'
-                '<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
-                '<s:Body>'
-                    '<u:SetAVTransportURI xmlns:u="{service}">'
-                        '<InstanceID>0</InstanceID>'
-                        '<CurrentURI>{uri}</CurrentURI>'
-                        '<CurrentURIMetaData></CurrentURIMetaData>'
-                    '</u:SetAVTransportURI>'
-                '</s:Body>'
-                '</s:Envelope>').format(service=service, uri=uri)
+        body = (
+            '<?xml version="1.0" encoding="utf-8"?>'
+            '<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
+            '<s:Body>'
+            '<u:SetAVTransportURI xmlns:u="{service}">'
+            '<InstanceID>0</InstanceID>'
+            '<CurrentURI>{uri}</CurrentURI>'
+            '<CurrentURIMetaData></CurrentURIMetaData>'
+            '</u:SetAVTransportURI>'
+            '</s:Body>'
+            '</s:Envelope>').format(
+                service=service, uri=uri)
         response_xml = yield from self._soapaction(service, action, url, body)
         if self._verbose:
             pprint(response_xml)
@@ -297,15 +322,16 @@ class Upnp(object):
         " play "
         service = AVTRANSPORT_SERVICE
         # pylint: disable=line-too-long,bad-continuation
-        body = ('<?xml version="1.0" encoding="utf-8"?>'
-                '<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
-                '<s:Body>'
-                    '<u:Play xmlns:u="{}">'
-                        '<InstanceID>0</InstanceID>'
-                        '<Speed>1</Speed>'
-                    '</u:Play>'
-                '</s:Body>'
-                '</s:Envelope>').format(service)
+        body = (
+            '<?xml version="1.0" encoding="utf-8"?>'
+            '<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">'
+            '<s:Body>'
+            '<u:Play xmlns:u="{}">'
+            '<InstanceID>0</InstanceID>'
+            '<Speed>1</Speed>'
+            '</u:Play>'
+            '</s:Body>'
+            '</s:Envelope>').format(service)
         response_xml = yield from self._soapaction(service, "Play", url, body)
         if self._verbose:
             pprint(response_xml)
@@ -319,6 +345,7 @@ class Upnp(object):
     def ssdp_port(self):
         """ return ssdp port """
         return self._ssdp_port
+
 
 class PlayContentServer(asyncio.Protocol):
     """ Play Content Server """
@@ -346,10 +373,10 @@ class PlayContentServer(asyncio.Protocol):
         self._transport.close()
 
 
-class AioHeosUpnp(object):
+class AioHeosUpnp():
     " Heos version of Upnp "
 
-    def __init__(self, loop, verbose=False): # pylint: disable=redefined-outer-name
+    def __init__(self, loop, verbose=False):
         self._verbose = verbose
         self._upnp = Upnp(loop=loop, verbose=verbose)
         self._loop = loop
@@ -366,9 +393,10 @@ class AioHeosUpnp(object):
     @asyncio.coroutine
     def query_renderer(self):
         " query renderer "
-        if self._url is None:
-            return None
-        self._path = yield from self._upnp.query_renderer(AVTRANSPORT_SERVICE, self._url)
+        if not self._url:
+            return
+        self._path = yield from self._upnp.query_renderer(
+            AVTRANSPORT_SERVICE, self._url)
         self._renderer_uri = self._url + self._path
 
     @asyncio.coroutine
@@ -396,8 +424,10 @@ class AioHeosUpnp(object):
 
         # http server
         http_server = self._loop.create_server(
-            lambda: PlayContentServer(content, content_type, verbose=self._verbose),
-            sock=sock)
+            lambda: PlayContentServer(content, content_type,
+                                      verbose=self._verbose),
+            sock=sock
+        )
 
         # play request
         play_uri = self._loop.create_task(self._play_uri(uri))
@@ -406,11 +436,11 @@ class AioHeosUpnp(object):
 
 
 @asyncio.coroutine
-def main(loop): # pylint: disable=redefined-outer-name
+def main(aioloop):    # pylint: disable=redefined-outer-name
     " main "
 
     _verbose = True
-    upnp = AioHeosUpnp(loop=loop, verbose=_verbose)
+    upnp = AioHeosUpnp(loop=aioloop, verbose=_verbose)
     url = yield from upnp.discover()
     if _verbose:
         pprint(url)
@@ -431,6 +461,6 @@ def main(loop): # pylint: disable=redefined-outer-name
 
 if __name__ == "__main__":
     # pylint: disable=invalid-name
-    loop = asyncio.get_event_loop()
-    main(loop)
-    loop.close()
+    aioloop = asyncio.get_event_loop()
+    main(aioloop)
+    aioloop.close()
