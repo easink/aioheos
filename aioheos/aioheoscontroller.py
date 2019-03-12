@@ -4,7 +4,6 @@
 import asyncio
 import json
 import logging
-import sys
 from concurrent.futures import CancelledError
 
 from . import aioheosgroup
@@ -104,7 +103,7 @@ class AioHeosController():
         self._loop = loop
         self._username = username
         self._password = password
-        self._need_login = not not self._username
+        self._need_login = bool(self._username)
         self._new_device_callback = new_device_callback
         self._players = None
         self._groups = None
@@ -123,8 +122,8 @@ class AioHeosController():
     async def ensure_player(self):
         """Ensure player."""
         # timeout after 10 sec
+        self.request_players()
         for _ in range(0, 20):
-            self.request_players()
             if self.player_id:
                 return
             await asyncio.sleep(0.5)
@@ -134,7 +133,7 @@ class AioHeosController():
         # timeout after 10 sec
         self.request_groups()
         for _ in range(0, 20):
-            if self._groups:
+            if self._groups is not None:
                 return
             await asyncio.sleep(0.5)
 
@@ -167,9 +166,7 @@ class AioHeosController():
         """Connect to device."""
         if host:
             self._host = host
-        elif self._host:
-            pass
-        else:
+        elif not self._host:
             # discover
             url = await self._upnp.discover()
             self._host = self._url_to_addr(url)
@@ -214,8 +211,8 @@ class AioHeosController():
                 _LOGGER.warning('[W] Connection refused'
                                 ', will try %s:%s again in %d seconds ...',
                                 host, port, wait)
-            except:
-                _LOGGER.error('[E] %s', sys.exc_info()[0])
+            except Exception as e:
+                _LOGGER.error('[E] %s', e)
 
             await asyncio.sleep(wait)
 
@@ -342,17 +339,17 @@ class AioHeosController():
         # pylint: disable=bare-except
         except AioHeosException as exc:
             raise exc
-        except:
+        except Exception:
             _LOGGER.exception("Unexpected error for msg '%s'", data)
             raise AioHeosException('Problem parsing command.')
 
         return None
 
-    async def _callback_wrapper(self, callback):    # pylint: disable=no-self-use
+    async def _callback_wrapper(self, callback):
         if callback:
             try:
                 await callback()
-            except:    # pylint: disable=bare-except
+            except Exception:    # pylint: disable=broad-except
                 pass
 
     async def _async_subscribe(self, callback=None):
@@ -375,8 +372,8 @@ class AioHeosController():
             except (GeneratorExit, CancelledError):
                 _LOGGER.info('[I] Cancelling event loop...')
                 return
-            except:    # pylint: disable=bare-except
-                _LOGGER.error('[E] Ignoring', sys.exc_info()[0])
+            except Exception as exc:    # pylint: disable=broad-except
+                _LOGGER.error('[E] Ignoring', exc)
             if self._verbose:
                 _LOGGER.debug(msg.decode())
             # simplejson doesnt need to decode from byte to ascii

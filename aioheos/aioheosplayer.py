@@ -35,6 +35,9 @@ class AioHeosPlayer():
         _LOGGER.debug("[D] Creating player object %s for controller pid %s",
                       self._player_id, self._controller._player_id)
 
+    def __lt__(self, other):
+        return self._player_id < other.player_id
+
     @property
     def state_change_callback(self):
         " get state_change_callback "
@@ -187,7 +190,7 @@ class AioHeosPlayer():
 
     def set_mute(self, mute):
         " set mute "
-        self._controller.toggle_mute(self.player_id, mute)
+        self._controller.set_mute(self.player_id, mute)
 
     def reset_now_playing(self):
         """Reset now playing"""
