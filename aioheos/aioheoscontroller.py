@@ -97,7 +97,6 @@ class AioHeosController():
                  host=None,
                  username=None,
                  password=None,
-                 verbose=False,
                  new_device_callback=None):
         self._host = host
         self._loop = loop
@@ -108,9 +107,8 @@ class AioHeosController():
         self._players = None
         self._groups = None
 
-        self._verbose = verbose
         self._player_id = None
-        self._upnp = aioheosupnp.AioHeosUpnp(loop=loop, verbose=verbose)
+        self._upnp = None
         self._reader = None
         self._writer = None
         self._subscribtion_task = None
@@ -168,12 +166,13 @@ class AioHeosController():
             self._host = host
         elif not self._host:
             # discover
+            if not self._upnp:
+                self._upnp = aioheosupnp.AioHeosUpnp(loop=self._loop)
             url = await self._upnp.discover()
             self._host = self._url_to_addr(url)
 
         # connect
-        if self._verbose:
-            _LOGGER.debug('[I] Connecting to %s:%s', self._host, port)
+        _LOGGER.debug('[I] Connecting to %s:%s', self._host, port)
         await self._connect(self._host, port)
 
         # please, do not prettify json
@@ -211,8 +210,8 @@ class AioHeosController():
                 _LOGGER.warning('[W] Connection refused'
                                 ', will try %s:%s again in %d seconds ...',
                                 host, port, wait)
-            except Exception as e:
-                _LOGGER.error('[E] %s', e)
+            except Exception as exc:  # pylint: disable=broad-except
+                _LOGGER.error('[E] %s', exc)
 
             await asyncio.sleep(wait)
 
@@ -225,8 +224,7 @@ class AioHeosController():
             msg += '?' + '&'.join("{}={}".format(key, val)
                                   for (key, val) in message.items())
         msg += '\r\n'
-        if self._verbose:
-            _LOGGER.debug(msg)
+        _LOGGER.debug(msg)
         self._writer.write(msg.encode('ascii'))
 
     @staticmethod
@@ -257,10 +255,8 @@ class AioHeosController():
 
     def _dispatcher(self, command, message, payload):
         """Call parser functions."""
-        # if self._verbose:
-        if self._verbose:
-            _LOGGER.debug('DISPATCHER')
-            _LOGGER.debug('[D] %s %s %s', command, message, payload)
+        _LOGGER.debug('DISPATCHER')
+        _LOGGER.debug('[D] %s %s %s', command, message, payload)
         callbacks = {
             GET_PLAYERS:
             self._parse_players,
@@ -310,8 +306,7 @@ class AioHeosController():
         if command in callbacks:
             callbacks[command](payload, message)
         elif command in commands_ignored:
-            if self._verbose:
-                _LOGGER.debug('[D] command "%s" is ignored.', command)
+            _LOGGER.debug('[D] command "%s" is ignored.', command)
         else:
             _LOGGER.debug('[D] command "%s" is not handled.', command)
 
@@ -374,25 +369,21 @@ class AioHeosController():
                 return
             except Exception as exc:    # pylint: disable=broad-except
                 _LOGGER.error('[E] Ignoring', exc)
-            if self._verbose:
-                _LOGGER.debug(msg.decode())
+            _LOGGER.debug(msg.decode())
             # simplejson doesnt need to decode from byte to ascii
             data = json.loads(msg.decode())
-            if self._verbose:
-                _LOGGER.debug('DATA:')
-                _LOGGER.debug(data)
+            _LOGGER.debug('DATA:')
+            _LOGGER.debug(data)
             try:
                 self._parse_command(data)
             except AioHeosException as exc:
                 _LOGGER.error('[E]', exc)
-                if self._verbose:
-                    _LOGGER.debug('MSG', msg)
-                    _LOGGER.debug('MSG decoded', msg.decode())
-                    _LOGGER.debug('MSG json', data)
+                _LOGGER.debug('MSG', msg)
+                _LOGGER.debug('MSG decoded', msg.decode())
+                _LOGGER.debug('MSG json', data)
                 continue
             if callback:
-                if self._verbose:
-                    _LOGGER.debug('TRIGGER CALLBACK')
+                _LOGGER.debug('TRIGGER CALLBACK')
                 self._loop.create_task(self._callback_wrapper(callback))
 
     def new_device_callback(self, callback):
@@ -581,8 +572,7 @@ class AioHeosController():
 
         player.qid = payload.get('qid')
 
-        if self._verbose:
-            _LOGGER.debug("[D] _parse_now_playing_media %s", vars(player))
+        _LOGGER.debug("[D] _parse_now_playing_media %s", vars(player))
 
     def get_favourites(self):
         """ get duration """
