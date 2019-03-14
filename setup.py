@@ -13,8 +13,9 @@ setup(name='aioheos',
       packages=['aioheos'],
       long_description=open('README.md').read(),
       install_requires=[
-          'lxml',
           'aiohttp',
+          'lxml',
+          'pytz'
       ],
       classifiers=[
         "Programming Language :: Python :: 3",

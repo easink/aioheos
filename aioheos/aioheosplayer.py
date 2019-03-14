@@ -9,7 +9,7 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 
-class AioHeosPlayer():
+class AioHeosPlayer:
     " Asynchronous Heos Player class "
 
     def __init__(self, controller, player_json):
@@ -32,8 +32,8 @@ class AioHeosPlayer():
         self._media_image_url = None
         self._media_id = None
         self._callback = None
-        _LOGGER.debug("[D] Creating player object %s for controller pid %s",
-                      self._player_id, self._controller._player_id)
+        _LOGGER.debug("[D] Creating player object %s",
+                      self._player_id)
 
     def __lt__(self, other):
         return self._player_id < other.player_id

@@ -33,7 +33,7 @@ TOGGLE_MUTE = 'player/toggle_mute'
 GET_GROUPS = 'group/get_groups'
 SET_GROUP = 'group/set_group'
 
-BROWSE = 'browser/browse'
+BROWSE = 'browse/browse'
 
 EVENT_PLAYER_VOLUME_CHANGED = 'event/player_volume_changed'
 EVENT_PLAYER_STATE_CHANGED = 'event/player_state_changed'
@@ -88,7 +88,7 @@ class AioHeosException(Exception):
         self.message = message
 
 
-class AioHeosController():
+class AioHeosController:
     """Asynchronous Heos class."""
 
     # ddpylint: disable=too-many-public-methods,too-many-instance-attributes
@@ -107,7 +107,6 @@ class AioHeosController():
         self._players = None
         self._groups = None
 
-        self._player_id = None
         self._upnp = None
         self._reader = None
         self._writer = None
@@ -122,7 +121,7 @@ class AioHeosController():
         # timeout after 10 sec
         self.request_players()
         for _ in range(0, 20):
-            if self.player_id:
+            if self._players:
                 return
             await asyncio.sleep(0.5)
 
@@ -219,8 +218,6 @@ class AioHeosController():
         """Send command."""
         msg = 'heos://' + command
         if message:
-            if not message.get('pid'):
-                message['pid'] = self.player_id
             msg += '?' + '&'.join("{}={}".format(key, val)
                                   for (key, val) in message.items())
         msg += '\r\n'
@@ -420,7 +417,6 @@ class AioHeosController():
 
     def _parse_players(self, payload, _message):
         _players_json = payload
-        self._player_id = _players_json[0]['pid']
         if not self._players:
             self._players = []
 
@@ -484,11 +480,6 @@ class AioHeosController():
                 return group
         return None
 
-    @property
-    def player_id(self):
-        " get player id "
-        return self._player_id
-
     def request_player_info(self, pid):
         " request player info "
         self.send_command(GET_PLAYER_INFO, {'pid': pid})
@@ -525,13 +516,13 @@ class AioHeosController():
         if self.get_group(message['pid']):
             self.get_group(message['pid']).volume = float(message['level'])
 
-    def _set_play_state(self, state, pid=None):
+    def _set_play_state(self, state, pid):
         " set play state "
         if state not in ('play', 'pause', 'stop'):
             AioHeosException('Not an accepted play state {}.'.format(state))
 
         self.send_command(SET_PLAY_STATE, {
-            'pid': pid if pid else self.player_id,
+            'pid': pid,
             'state': state
         })
 
@@ -547,10 +538,10 @@ class AioHeosController():
         " pause "
         self._set_play_state('pause', pid)
 
-    def request_now_playing_media(self, pid=None):
+    def request_now_playing_media(self, pid):
         " get playing media "
         self.send_command(GET_NOW_PLAYING_MEDIA,
-                          {'pid': pid if pid else self.player_id})
+                          {'pid': pid})
 
     def _parse_now_playing_media(self, payload, message):
         player = self.get_player(message["pid"])
@@ -679,7 +670,8 @@ class AioHeosController():
 
     def _parse_player_now_playing_changed(self, _payload, _message):
         " event / now playing changed, request what changed. "
-        self.request_now_playing_media()
+        player_id = _message['pid']
+        self.request_now_playing_media(player_id)
 
     def _parse_player_now_playing_progress(self, _payload, message):
         player = self.get_player(message["pid"])
