@@ -13,8 +13,8 @@ class AioHeosGroup(aioheosplayer.AioHeosPlayer):
     def __init__(self, controller, group_json):
         group_json["pid"] = group_json["gid"]
         super().__init__(controller, group_json)
-        _LOGGER.debug("[D] Creating group object %s for controller pid %s",
-                      self._player_id, self._controller._player_id)
+        _LOGGER.debug("[D] Creating group object %s",
+                      self._player_id)
 
     def recreate_group(self):
         " Recreate group "

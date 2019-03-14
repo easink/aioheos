@@ -11,7 +11,7 @@ async def heos_test(loop):
     # host = None
     host = 'HEOS-1'
 
-    heos = aioheos.AioHeosController(loop, host=host, verbose=verbose)
+    heos = aioheos.AioHeosController(loop, host=host)
 
     # connect to player
     await heos.connect()
@@ -33,7 +33,7 @@ async def heos_test(loop):
     # do some work...
     await asyncio.sleep(2)
 
-    heos.close()
+    await heos.close()
 
 
 def main():

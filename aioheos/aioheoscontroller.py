@@ -33,7 +33,7 @@ TOGGLE_MUTE = 'player/toggle_mute'
 GET_GROUPS = 'group/get_groups'
 SET_GROUP = 'group/set_group'
 
-BROWSE = 'browser/browse'
+BROWSE = 'browse/browse'
 
 EVENT_PLAYER_VOLUME_CHANGED = 'event/player_volume_changed'
 EVENT_PLAYER_STATE_CHANGED = 'event/player_state_changed'
@@ -88,7 +88,7 @@ class AioHeosException(Exception):
         self.message = message
 
 
-class AioHeosController():
+class AioHeosController:
     """Asynchronous Heos class."""
 
     # ddpylint: disable=too-many-public-methods,too-many-instance-attributes
@@ -97,8 +97,10 @@ class AioHeosController():
                  host=None,
                  username=None,
                  password=None,
-                 new_device_callback=None):
+                 new_device_callback=None,
+                 port=HEOS_PORT):
         self._host = host
+        self._port = port
         self._loop = loop
         self._username = username
         self._password = password
@@ -107,11 +109,11 @@ class AioHeosController():
         self._players = None
         self._groups = None
 
-        self._player_id = None
         self._upnp = None
         self._reader = None
         self._writer = None
         self._subscribtion_task = None
+        self._close_requested = False
 
         self._favourites = []
         self._favourites_sid = None
@@ -122,7 +124,7 @@ class AioHeosController():
         # timeout after 10 sec
         self.request_players()
         for _ in range(0, 20):
-            if self.player_id:
+            if self._players:
                 return
             await asyncio.sleep(0.5)
 
@@ -160,11 +162,9 @@ class AioHeosController():
             return addr.group(1)
         return None
 
-    async def connect(self, host=None, port=HEOS_PORT, callback=None):
+    async def connect(self, callback=None):
         """Connect to device."""
-        if host:
-            self._host = host
-        elif not self._host:
+        if not self._host:
             # discover
             if not self._upnp:
                 self._upnp = aioheosupnp.AioHeosUpnp(loop=self._loop)
@@ -172,8 +172,8 @@ class AioHeosController():
             self._host = self._url_to_addr(url)
 
         # connect
-        _LOGGER.debug('[I] Connecting to %s:%s', self._host, port)
-        await self._connect(self._host, port)
+        _LOGGER.debug('[I] Connecting to %s:%s', self._host, self._port)
+        await self._connect()
 
         # please, do not prettify json
         self.register_pretty_json(False)
@@ -192,24 +192,24 @@ class AioHeosController():
             await self.ensure_login()
             self.request_music_sources()
 
-    async def _connect(self, host, port=HEOS_PORT):
+    async def _connect(self):
         """Connect."""
-        while True:
+        while not self._close_requested:
             wait = 5
             try:
                 # pylint: disable=line-too-long
                 self._reader, self._writer = await asyncio.open_connection(
-                    host, port, loop=self._loop)
+                    self._host, self._port, loop=self._loop)
                 return
             except TimeoutError:
                 _LOGGER.warning('[W] Connection timed out'
                                 ', will try %s:%s again in %d seconds ...',
-                                host, port, wait)
+                                self._host, self._port, wait)
             except ConnectionRefusedError:
                 wait = 30
                 _LOGGER.warning('[W] Connection refused'
                                 ', will try %s:%s again in %d seconds ...',
-                                host, port, wait)
+                                self._host, self._port, wait)
             except Exception as exc:  # pylint: disable=broad-except
                 _LOGGER.error('[E] %s', exc)
 
@@ -219,8 +219,6 @@ class AioHeosController():
         """Send command."""
         msg = 'heos://' + command
         if message:
-            if not message.get('pid'):
-                message['pid'] = self.player_id
             msg += '?' + '&'.join("{}={}".format(key, val)
                                   for (key, val) in message.items())
         msg += '\r\n'
@@ -350,25 +348,27 @@ class AioHeosController():
     async def _async_subscribe(self, callback=None):
         """ event loop """
         # pylint: disable=too-many-branches,logging-too-many-args
-        while True:
-            if not self._reader:
-                await asyncio.sleep(0.1)
-                continue
+        while not self._close_requested:
             try:
                 msg = await self._reader.readline()
             except TimeoutError:
                 _LOGGER.warning(
-                    '[W] Connection got timed out, try to reconnect...')
-                await self._connect(self._host)
+                    '[W] Connection got timed out, try to reconnect...',
+                    exc_info=True)
+                await self._connect()
+                continue
             except ConnectionResetError:
                 _LOGGER.warning(
-                    '[W] Peer reset our connection, try to reconnect...')
-                await self._connect(self._host)
+                    '[W] Peer reset our connection, try to reconnect...',
+                    exc_info=True)
+                await self._connect()
+                continue
             except (GeneratorExit, CancelledError):
-                _LOGGER.info('[I] Cancelling event loop...')
+                _LOGGER.debug('[I] Cancelling event loop...', exc_info=True)
                 return
-            except Exception as exc:    # pylint: disable=broad-except
-                _LOGGER.error('[E] Ignoring', exc)
+            except Exception:    # pylint: disable=broad-except
+                _LOGGER.debug('[E] Ignoring', exc_info=True)
+                continue
             _LOGGER.debug(msg.decode())
             # simplejson doesnt need to decode from byte to ascii
             data = json.loads(msg.decode())
@@ -390,11 +390,18 @@ class AioHeosController():
         """Callback when new device."""
         self._new_device_callback = callback
 
-    def close(self):
+    async def close(self):
         " close "
         _LOGGER.info('[I] Closing down...')
+        self._close_requested = True
+        if self._writer:
+            self._writer.close()
         if self._subscribtion_task:
             self._subscribtion_task.cancel()
+            try:
+                await self._subscribtion_task
+            except asyncio.CancelledError:
+                pass
 
     def register_for_change_events(self):
         " register for change events "
@@ -420,7 +427,6 @@ class AioHeosController():
 
     def _parse_players(self, payload, _message):
         _players_json = payload
-        self._player_id = _players_json[0]['pid']
         if not self._players:
             self._players = []
 
@@ -484,11 +490,6 @@ class AioHeosController():
                 return group
         return None
 
-    @property
-    def player_id(self):
-        " get player id "
-        return self._player_id
-
     def request_player_info(self, pid):
         " request player info "
         self.send_command(GET_PLAYER_INFO, {'pid': pid})
@@ -525,13 +526,13 @@ class AioHeosController():
         if self.get_group(message['pid']):
             self.get_group(message['pid']).volume = float(message['level'])
 
-    def _set_play_state(self, state, pid=None):
+    def _set_play_state(self, state, pid):
         " set play state "
         if state not in ('play', 'pause', 'stop'):
             AioHeosException('Not an accepted play state {}.'.format(state))
 
         self.send_command(SET_PLAY_STATE, {
-            'pid': pid if pid else self.player_id,
+            'pid': pid,
             'state': state
         })
 
@@ -547,10 +548,10 @@ class AioHeosController():
         " pause "
         self._set_play_state('pause', pid)
 
-    def request_now_playing_media(self, pid=None):
+    def request_now_playing_media(self, pid):
         " get playing media "
         self.send_command(GET_NOW_PLAYING_MEDIA,
-                          {'pid': pid if pid else self.player_id})
+                          {'pid': pid})
 
     def _parse_now_playing_media(self, payload, message):
         player = self.get_player(message["pid"])
@@ -679,7 +680,8 @@ class AioHeosController():
 
     def _parse_player_now_playing_changed(self, _payload, _message):
         " event / now playing changed, request what changed. "
-        self.request_now_playing_media()
+        player_id = _message['pid']
+        self.request_now_playing_media(player_id)
 
     def _parse_player_now_playing_progress(self, _payload, message):
         player = self.get_player(message["pid"])
