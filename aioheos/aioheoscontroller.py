@@ -97,8 +97,10 @@ class AioHeosController:
                  host=None,
                  username=None,
                  password=None,
-                 new_device_callback=None):
+                 new_device_callback=None,
+                 port=HEOS_PORT):
         self._host = host
+        self._port = port
         self._loop = loop
         self._username = username
         self._password = password
@@ -111,6 +113,7 @@ class AioHeosController:
         self._reader = None
         self._writer = None
         self._subscribtion_task = None
+        self._close_requested = False
 
         self._favourites = []
         self._favourites_sid = None
@@ -159,11 +162,9 @@ class AioHeosController:
             return addr.group(1)
         return None
 
-    async def connect(self, host=None, port=HEOS_PORT, callback=None):
+    async def connect(self, callback=None):
         """Connect to device."""
-        if host:
-            self._host = host
-        elif not self._host:
+        if not self._host:
             # discover
             if not self._upnp:
                 self._upnp = aioheosupnp.AioHeosUpnp(loop=self._loop)
@@ -171,8 +172,8 @@ class AioHeosController:
             self._host = self._url_to_addr(url)
 
         # connect
-        _LOGGER.debug('[I] Connecting to %s:%s', self._host, port)
-        await self._connect(self._host, port)
+        _LOGGER.debug('[I] Connecting to %s:%s', self._host, self._port)
+        await self._connect()
 
         # please, do not prettify json
         self.register_pretty_json(False)
@@ -191,24 +192,24 @@ class AioHeosController:
             await self.ensure_login()
             self.request_music_sources()
 
-    async def _connect(self, host, port=HEOS_PORT):
+    async def _connect(self):
         """Connect."""
-        while True:
+        while not self._close_requested:
             wait = 5
             try:
                 # pylint: disable=line-too-long
                 self._reader, self._writer = await asyncio.open_connection(
-                    host, port, loop=self._loop)
+                    self._host, self._port, loop=self._loop)
                 return
             except TimeoutError:
                 _LOGGER.warning('[W] Connection timed out'
                                 ', will try %s:%s again in %d seconds ...',
-                                host, port, wait)
+                                self._host, self._port, wait)
             except ConnectionRefusedError:
                 wait = 30
                 _LOGGER.warning('[W] Connection refused'
                                 ', will try %s:%s again in %d seconds ...',
-                                host, port, wait)
+                                self._host, self._port, wait)
             except Exception as exc:  # pylint: disable=broad-except
                 _LOGGER.error('[E] %s', exc)
 
@@ -347,25 +348,27 @@ class AioHeosController:
     async def _async_subscribe(self, callback=None):
         """ event loop """
         # pylint: disable=too-many-branches,logging-too-many-args
-        while True:
-            if not self._reader:
-                await asyncio.sleep(0.1)
-                continue
+        while not self._close_requested:
             try:
                 msg = await self._reader.readline()
             except TimeoutError:
                 _LOGGER.warning(
-                    '[W] Connection got timed out, try to reconnect...')
-                await self._connect(self._host)
+                    '[W] Connection got timed out, try to reconnect...',
+                    exc_info=True)
+                await self._connect()
+                continue
             except ConnectionResetError:
                 _LOGGER.warning(
-                    '[W] Peer reset our connection, try to reconnect...')
-                await self._connect(self._host)
+                    '[W] Peer reset our connection, try to reconnect...',
+                    exc_info=True)
+                await self._connect()
+                continue
             except (GeneratorExit, CancelledError):
-                _LOGGER.info('[I] Cancelling event loop...')
+                _LOGGER.debug('[I] Cancelling event loop...', exc_info=True)
                 return
-            except Exception as exc:    # pylint: disable=broad-except
-                _LOGGER.error('[E] Ignoring', exc)
+            except Exception:    # pylint: disable=broad-except
+                _LOGGER.debug('[E] Ignoring', exc_info=True)
+                continue
             _LOGGER.debug(msg.decode())
             # simplejson doesnt need to decode from byte to ascii
             data = json.loads(msg.decode())
@@ -387,11 +390,18 @@ class AioHeosController:
         """Callback when new device."""
         self._new_device_callback = callback
 
-    def close(self):
+    async def close(self):
         " close "
         _LOGGER.info('[I] Closing down...')
+        self._close_requested = True
+        if self._writer:
+            self._writer.close()
         if self._subscribtion_task:
             self._subscribtion_task.cancel()
+            try:
+                await self._subscribtion_task
+            except asyncio.CancelledError:
+                pass
 
     def register_for_change_events(self):
         " register for change events "

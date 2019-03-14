@@ -33,7 +33,7 @@ async def heos_test(loop):
     # do some work...
     await asyncio.sleep(2)
 
-    heos.close()
+    await heos.close()
 
 
 def main():
